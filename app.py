@@ -529,8 +529,12 @@ def capture():
              content if imported else ""),
         )
         db().commit()
-        resp = jsonify({"ok": True, "id": cur.lastrowid, "mode": mode,
-                        "url": url_for("essay", essay_id=cur.lastrowid, _external=True)})
+        essay_id = cur.lastrowid
+        parsed = False
+        if imported:
+            parsed = try_auto_parse(essay_id, content)
+        resp = jsonify({"ok": True, "id": essay_id, "mode": mode, "parsed": parsed,
+                        "url": url_for("essay", essay_id=essay_id, _external=True)})
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
     resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
@@ -774,21 +778,7 @@ def import_page():
         essay_id = cur.lastrowid
         if mode == "imported":
             # 直接调 AI 整理
-            messages = [
-                {"role": "system", "content": PARSE_PROMPT},
-                {"role": "user", "content": content},
-            ]
-            result = call_ai(messages)
-            data = extract_json(result) if result else None
-            if data:
-                for k in ("sentences", "vocab", "wanted_phrases"):
-                    data.setdefault(k, [])
-                data["imported"] = True
-                db().execute(
-                    "UPDATE essays SET correction=?, corrected=1 WHERE id=?",
-                    (json.dumps(data, ensure_ascii=False), essay_id),
-                )
-                db().commit()
+            if try_auto_parse(essay_id, content):
                 return redirect(url_for("essay", essay_id=essay_id))
             # AI 整理失败 → 原始存档，去详情页手动点整理
             return redirect(url_for("essay", essay_id=essay_id))
@@ -863,19 +853,41 @@ def settings():
 
 def make_bookmarklet(mode="new"):
     """生成抓取书签的 JS 代码（拼进 href，注意转义引号）"""
+    ok_msg_imported = ("\\u2705 \\u5df2\\u5bfc\\u5165\\u5e76\\u81ea\\u52a8\\u6574\\u7406\\uff01"
+                       "\\u6253\\u5f00\\u9519\\u9898\\u96c6\\u2192\\u4e66\\u67b6\\u5c31\\u80fd\\u770b\\u5230\\u8fd9\\u7bc7\\u6587\\u7ae0\\u3002")
+    ok_msg_new = ("\\u2705 \\u5df2\\u5b58\\u5165\\u9519\\u9898\\u96c6\\uff0c\\u56de\\u53bb\\u70b9\\u300cAI \\u6279\\u6539\\u300d\\u5c31\\u884c\\u3002")
     js = (
-        "javascript:(function(){var t=window.getSelection().toString();"
-        "if(!t){alert('请先在网页中选中要收藏的文字');return;}"
+        "javascript:(function(){var t=(window.getSelection?window.getSelection().toString():'');"
+        "if(!t){alert('\\u8bf7\\u5148\\u5728\\u7f51\\u9875\\u4e2d\\u7528\\u9f20\\u6807\\u62d6\\u84dd\\uff08\\u9009\\u4e2d\\uff09\\u8981\\u6536\\u85cf\\u7684\\u6587\\u5b57\\uff0c\\u518d\\u70b9\\u8fd9\\u4e2a\\u4e66\\u7b7e');return;}"
         "fetch('http://127.0.0.1:5000/api/capture',{method:'POST',"
         "headers:{'Content-Type':'application/json'},"
         f"body:JSON.stringify({{content:t,title:document.title,mode:'{mode}'}})}})"
         ".then(function(r){return r.json()})"
-        ".then(function(d){alert(d.ok?(d.mode==='imported'"
-        "?'✅ 已导入错题集（存档模式），去点「AI 整理成错题格式」吧'"
-        ":'✅ 已存入错题集，快回去批改吧'):'失败: '+d.error)})"
-        ".catch(function(){alert('无法连接错题集，请确认 127.0.0.1:5000 正在运行')});})();"
+        f".then(function(d){{alert(d.ok?(d.mode==='imported'?('{ok_msg_imported}'+(d.parsed?'':'\\n\\uff08AI \\u6682\\u65f6\\u6ca1\\u6574\\u7406\\u6210\\u529f\\uff0c\\u5df2\\u5148\\u5b58\\u539f\\u6587\\uff0c\\u53ef\\u5728\\u9519\\u9898\\u96c6\\u91cc\\u624b\\u52a8\\u70b9\\u6574\\u7406\\uff09')):'{ok_msg_new}'):'\\u5931\\u8d25: '+d.error)}})"
+        ".catch(function(){alert('\\u65e0\\u6cd5\\u8fde\\u63a5\\u9519\\u9898\\u96c6\\uff01\\u8bf7\\u786e\\u8ba4\\u5df2\\u53cc\\u51fb\\u542f\\u52a8\\u6587\\u4ef6\\uff0c\\u5e76\\u80fd\\u6253\\u5f00 http://127.0.0.1:5000')});})();"
     )
     return js.replace("'", "%27").replace('"', "%22")
+
+
+def try_auto_parse(essay_id, content):
+    """把已批改的原始内容交给 AI 整理成错题格式；成功返回 True"""
+    messages = [
+        {"role": "system", "content": PARSE_PROMPT},
+        {"role": "user", "content": content},
+    ]
+    result = call_ai(messages)
+    data = extract_json(result) if result else None
+    if not data:
+        return False
+    for k in ("sentences", "vocab", "wanted_phrases"):
+        data.setdefault(k, [])
+    data["imported"] = True
+    db().execute(
+        "UPDATE essays SET correction=?, corrected=1 WHERE id=?",
+        (json.dumps(data, ensure_ascii=False), essay_id),
+    )
+    db().commit()
+    return True
 
 
 @app.route("/delete/<int:essay_id>", methods=["POST"])
