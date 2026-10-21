@@ -205,16 +205,19 @@ CORRECT_PROMPT = """你是一位专业耐心的英语写作老师。学生正在
 
 要求：
 1. 逐句批改。每个句子标记类型：
-   - "error"：语法/拼写/用词错误，必须修正。修正时**尽量保留学生原来的句子结构和用词**，只改必要的部分，不要大幅重写。
-   - "optimize"：语法正确但有更地道自然的表达，给出优化建议。
+   - "error"：语法/拼写/用词错误，必须修正。**铁律：只修改真正错的部分**。学生的时态、句式、语序、结构必须原样保留——禁止把一般过去时改成完成时、禁止主动被动互换、禁止拆句/合句/调换从句位置。哪怕学生的句式很罕见，也只在错点上做最小修补。**例外**：如果整个句子的语法结构本身就是错误且无法在小修补内成立的（如主谓结构完全混乱、时态框架自相矛盾），允许整句重写，但重写时必须保留学生的原意和尽量保留其用词，并在 note 里说明"这句结构问题太多，所以整句重写"。
+   - "optimize"：语法正确但有更地道自然的表达，给出优化建议。**同样不许改变句式结构**，只替换或补充个别词汇。
    - "complex_kept"：学生尝试的复杂句（长句、从句、倒装、非谓语等），即使有小错误也要**重点保留其结构**，只做最小限度的改造，绝不简化；如果没有错误请直接保留并表扬。
    - "good"：写得好的句子。
-2. 指出可优化的词汇和表达，放入 vocab 列表（错的或可优化的词要明确指出）。
-3. 给出两个改写版本：
+2. **词汇洁癖（极重要）**：学生在一篇文章里用了近义表达的变化（如 happy / glad / delighted / "my mood is as bright as sunshine"），这是优点，必须原样保留，**严禁全部统一成同一个词**。修改用词时先看上下文：如果该词在这里是正确且合适的，一个字都不要动；只有真的用错或明显不合适才换，且替换词要与上下文语境匹配，避免与文中其他句子重复用词。note 里如果要建议别的说法，用"也可以说…"的口吻，不要替学生改掉原文。
+3. 指出可优化的词汇和表达，放入 vocab 列表（错的或可优化的词要明确指出）。
+4. 给出两个改写版本：
    - version_current：贴合学生当前水平的改写（用词和句式接近学生自己能写出的程度，方便他今天就能模仿）。
+   - version_current：贴合学生当前水平的改写（用词和句式接近学生自己能写出的程度，方便他今天就能模仿；同样遵守"最小改动"铁律）。
    - version_advanced：进阶版本（更高级的词汇、从句和衔接，供学生学习目标）。
-4. 如果学生提供了 wanted（他想表达但不知道英文怎么说的意思），在 wanted_phrases 里给出对应的地道英文表达和简短讲解；没提供就给空数组。
-5. 给出总体评价 summary 和 1-10 分的 score，以及 error_count（错误句数）、optimize_count（优化句数）。
+5. 如果学生提供了 wanted（他想表达但不知道英文怎么说的意思），在 wanted_phrases 里给出对应的地道英文表达和简短讲解；没提供就给空数组。
+5. 给出总体评价 summary 和 1-10 分的 score。注意：error_count 按**句子**计数——一句话里错几个词都只算 1 个错误句；optimize_count 同理（有优化建议的句子数）。
+7. version_advanced 之外，给出 version_advanced_notes：列出进阶版相对当前水平版的关键差异（2-5 条），说明每处改动为什么更好。
 
 只输出 JSON，格式如下（不要输出其他任何文字）：
 {
@@ -226,7 +229,8 @@ CORRECT_PROMPT = """你是一位专业耐心的英语写作老师。学生正在
  "vocab": [{"original": "原词/表达", "suggestion": "建议", "note": "中文说明"}],
  "wanted_phrases": [{"chinese": "学生想表达的意思", "english": "地道英文", "note": "简短讲解"}],
  "version_current": "贴合当前水平的整篇改写",
- "version_advanced": "进阶版本整篇改写"
+ "version_advanced": "进阶版本整篇改写",
+ "version_advanced_notes": [{"change": "原表达 → 进阶表达", "why": "为什么这样更好"}]
 }
 """
 
@@ -380,12 +384,32 @@ def shelf():
             "SELECT * FROM essays WHERE corrected=1 ORDER BY id DESC").fetchall():
         c = json.loads(e["correction"]) if e["correction"] else {}
         books.append({
-            "id": e["id"], "title": e["title"],
+            "id": e["id"], "title": c.get("book_title") or e["title"],
             "date": time.strftime("%Y-%m-%d", time.localtime(e["created_at"])),
             "score": c.get("score"), "text": c.get("version_current") or "",
             "advanced": c.get("version_advanced") or "",
         })
     return render_template("shelf.html", books=books)
+
+
+@app.route("/rename/<int:essay_id>", methods=["POST"])
+def rename(essay_id):
+    """书架改名"""
+    data = request.get_json(silent=True) or request.form
+    name = (data.get("name") or "").strip()[:40]
+    if not name:
+        return jsonify({"error": "书名不能为空"}), 400
+    e = db().execute("SELECT correction FROM essays WHERE id=?", (essay_id,)).fetchone()
+    if not e:
+        return jsonify({"error": "不存在"}), 404
+    db().execute("UPDATE essays SET title=? WHERE id=?", (name, essay_id))
+    if e["correction"]:
+        c = json.loads(e["correction"])
+        c["book_title"] = name
+        db().execute("UPDATE essays SET correction=? WHERE id=?",
+                     (json.dumps(c, ensure_ascii=False), essay_id))
+    db().commit()
+    return jsonify({"ok": True, "name": name})
 
 
 @app.route("/write")
@@ -398,7 +422,10 @@ def write_page():
 
 @app.route("/new", methods=["POST"])
 def new_essay():
-    title = request.form.get("title", "").strip() or time.strftime("%Y-%m-%d 作文")
+    title = request.form.get("title", "").strip()
+    if not title:
+        n = db().execute("SELECT COUNT(*) c FROM essays").fetchone()["c"] + 1
+        title = f"第{n}篇 · {time.strftime('%Y-%m-%d')}"
     content = request.form.get("content", "").strip()
     wanted = request.form.get("wanted", "").strip()
     if not content:
@@ -458,6 +485,17 @@ def correct(essay_id):
         data = dict(DEMO_CORRECTION)
         data["demo"] = True
         data["demo_reason"] = _AI_ERROR["msg"] or "AI 返回了无法解析的内容（可重试一次）"
+    # 自动起书名（自定义标题也起；改名功能始终可覆盖）
+    if False:
+        pass
+    else:
+        bt = call_ai([
+            {"role": "system", "content":
+                "为一篇英语作文起一个简洁优美的中文'书名'（2-8个字，可含英文单词），"
+                "概括文章主题或意境。只输出书名本身，不要引号和解释。"},
+            {"role": "user", "content": e["content"][:800]},
+        ], timeout=60)
+        data["book_title"] = (bt or e["content"][:40]).strip().strip('"“”')[:30]
     db().execute(
         "UPDATE essays SET correction=?, corrected=1 WHERE id=?",
         (json.dumps(data, ensure_ascii=False), essay_id),
