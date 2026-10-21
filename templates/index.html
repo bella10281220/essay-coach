@@ -1,14 +1,17 @@
 {% extends "base.html" %}
 {% block body %}
 
-<div class="card hero" style="text-align:center;padding:36px 26px">
-  <p style="font-size:15px;color:var(--sub)">每天一篇，AI 帮你逐句改、说理由、记进步。</p>
-  <p style="font-size:13px;color:var(--sub);margin-top:8px">
-    已写 <b style="color:var(--green-d)">{{ total }}</b> 篇 ·
-    回顾报告 <b style="color:var(--green-d)">{{ reviews_count }}</b> 份 ·
-    回顾周期 {{ interval }} 篇
-  </p>
+<div class="cover-card" onclick="location.href='{{ url_for('write_page') }}'" style="cursor:pointer">
+  <div class="cover-frame">
+    <p class="cover-eng">S H I B E I &nbsp; J I</p>
+    <h1 class="cover-title">拾贝集</h1>
+    <p class="cover-line">———— ✦ ————</p>
+    <p class="cover-sub">在写作的海滩上，拾起每一篇好文章</p>
+    <p class="cover-stats">已藏 {{ total }} 篇 · 回顾报告 {{ reviews_count }} 份 · 每 {{ interval }} 篇一回顾</p>
+    <p class="cover-open">翻开 →</p>
+  </div>
 </div>
+
 
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
   <a class="card entry" href="{{ url_for('write_page') }}" style="border-top:4px solid var(--green)">
@@ -79,6 +82,24 @@
 </div>
 
 <style>
+.cover-card{max-width:420px;margin:0 auto 26px}
+.cover-frame{background:linear-gradient(170deg,#fdfbf5,#f2f8f4);border:1px solid #d8c9a8;
+  border-radius:6px 18px 18px 6px;padding:44px 30px 34px;text-align:center;position:relative;
+  box-shadow:6px 8px 24px rgba(90,70,40,.18), inset 0 0 0 1px #fff;
+  transition:.25s}
+.cover-frame:hover{transform:translateY(-4px);box-shadow:8px 12px 30px rgba(90,70,40,.22)}
+.cover-frame::before{content:"";position:absolute;left:12px;top:10px;bottom:10px;width:1px;
+  background:linear-gradient(#d8c9a8,transparent 85%)}
+.cover-frame::after{content:"";position:absolute;right:12px;top:10px;bottom:10px;width:1px;
+  background:linear-gradient(transparent 15%,#d8c9a8)}
+.cover-eng{font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:14px}
+.cover-title{font-size:52px;font-weight:400;letter-spacing:14px;text-indent:14px;color:var(--ink);
+  font-family:Georgia,"Songti SC","Noto Serif SC",serif}
+.cover-line{color:#c9b98a;margin:10px 0}
+.cover-sub{font-size:14px;color:var(--sub)}
+.cover-stats{font-size:12px;color:var(--sub);margin-top:22px;padding-top:16px;
+  border-top:1px dashed #e2d5b8}
+.cover-open{margin-top:14px;font-size:13px;color:var(--green-d);letter-spacing:2px}
 .entry{transition:.18s}
 .entry:hover{transform:translateY(-3px);box-shadow:0 8px 22px rgba(92,184,148,.14)}
 </style>
