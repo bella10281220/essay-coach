@@ -38,8 +38,10 @@
         <div class="book-text" style="background:var(--sky-bg);border-radius:12px;padding:16px;margin-top:10px">{{ b.advanced }}</div>
       </details>
       {% endif %}
-      <div style="margin-top:24px">
+      <div style="margin-top:24px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <a class="btn ghost small" href="{{ url_for('essay', essay_id=b.id) }}">📝 回看批改标注</a>
+        <input type="text" id="rn-{{ b.id }}" value="{{ b.title }}" style="width:200px;padding:6px 10px">
+        <button class="btn ghost small" onclick="renameBook({{ b.id }})">✎ 改书名</button>
       </div>
     </div>
   </div>
@@ -80,6 +82,14 @@ function openBook(id){
   document.getElementById('reader-'+id).classList.add('open');
   document.getElementById('reader').style.display = 'block';
   document.body.style.overflow = 'hidden';
+}
+function renameBook(id){
+  var name = document.getElementById('rn-'+id).value.trim();
+  if (!name) return;
+  fetch('/rename/'+id, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name:name})}).then(function(r){return r.json();}).then(function(d){
+    if (d.ok){ location.reload(); } else { alert(d.error); }
+  });
 }
 function closeBook(){
   document.getElementById('reader').style.display = 'none';
