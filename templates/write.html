@@ -22,7 +22,7 @@
     <h2 style="margin:0">我的文章 <small>{{ essays|length }} 篇</small></h2>
     <form action="{{ url_for('review') }}" method="post" style="display:flex;gap:8px;align-items:center">
       <span style="font-size:13px;color:var(--sub)">每</span>
-      <select name="interval" style="width:64px;border-radius:10px">
+      <select name="interval" style="width:84px;border-radius:10px;text-align:center;padding:8px 10px">
         <option value="10" {% if interval==10 %}selected{% endif %}>10</option>
         <option value="20" {% if interval==20 %}selected{% endif %}>20</option>
         <option value="30" {% if interval==30 %}selected{% endif %}>30</option>
