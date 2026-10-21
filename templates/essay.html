@@ -114,6 +114,15 @@
   <div class="card">
     <p style="color:var(--sub);font-size:13px;margin-bottom:8px">进阶版本：更高级的词汇与句式，作为学习目标。</p>
     <p style="white-space:pre-wrap;background:var(--sky-bg);padding:16px;border-radius:12px;font-size:15px">{{ c.version_advanced }}</p>
+    {% if c.version_advanced_notes %}
+    <strong style="display:block;margin:18px 0 8px">为什么这样更好：</strong>
+    {% for n in c.version_advanced_notes %}
+    <div class="sentence optimize" style="margin-bottom:10px">
+      <div class="orig" style="font-size:14px">{{ n.change }}</div>
+      <div class="note">{{ n.why }}</div>
+    </div>
+    {% endfor %}
+    {% endif %}
   </div>
 </div>
 
