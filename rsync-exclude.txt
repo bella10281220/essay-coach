@@ -1,0 +1,9 @@
+data/
+essays.db
+start.sh
+启动错题集.bat
+启动.command
+update.sh
+更新错题集.bat
+update-exclude.txt
+README.md

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card hero">
+  <h2>📥 导入</h2>
+  <p style="font-size:14px;color:var(--sub)">
+    最省事的导入方式：在 ChatGPT / Gemini 里 <strong>Ctrl+C 复制</strong>批改内容（或你新写的英文），
+    回来这里 <strong>Ctrl+V</strong>，点一下按钮即可——格式整理全部交给 AI。
+  </p>
+</div>
+
+<div class="card">
+  {% if error %}<div class="demo-note">{{ error }}</div>{% endif %}
+  <form action="{{ url_for('import_page') }}" method="post">
+    <div class="tabs">
+      <button type="button" class="{{ 'active' if mode=='imported' }}"
+              onclick="setMode('imported')">📥 我粘贴的是 GPT/Gemini 的批改结果</button>
+      <button type="button" class="{{ 'active' if mode=='new' }}"
+              onclick="setMode('new')">📝 我粘贴的是新写的英文（待批改）</button>
+    </div>
+    <input type="hidden" name="mode" id="mode" value="{{ mode }}">
+    <label>标题（可不填，自动按日期生成）</label>
+    <input type="text" name="title" placeholder="例如：2024-06-01 关于环境污染的作文">
+    <label>粘贴内容（Ctrl+V）</label>
+    <textarea name="content" style="min-height:240px" placeholder="在这里粘贴…"></textarea>
+    <div style="margin-top:14px">
+      <button class="btn" type="submit" id="submit-btn">🤖 粘贴好了，AI 整理入库 →</button>
+    </div>
+  </form>
+</div>
+
+<script>
+function setMode(m){
+  document.getElementById('mode').value = m;
+  document.getElementById('submit-btn').textContent =
+    m==='imported' ? '🤖 粘贴好了，AI 整理入库 →' : '📝 存为待批改作文 →';
+  var btns = document.querySelectorAll('.tabs button');
+  btns[0].classList.toggle('active', m==='imported');
+  btns[1].classList.toggle('active', m==='new');
+}
+</script>
+<div class="card">
+  <h2>🔖 更省事：书签一键导入（设置一次，永久好用）</h2>
+  <p style="font-size:14px;color:var(--sub);margin-bottom:6px">
+    <b>为什么拖不进书签栏？</b>新版 Chrome / Edge 出于安全考虑，<b>禁止拖拽 javascript 代码</b>了，所以拖不动是正常的！按下面的「三步设置法」来，30 秒搞定：
+  </p>
+  <ol style="font-size:14px;padding-left:22px;margin:10px 0 14px">
+    <li>在浏览器里按 <b>Ctrl + D</b>（Mac 按 ⌘ + D）—— 会弹出"添加书签"气泡</li>
+    <li>点气泡里的<b>「更多…」/「编辑」</b>按钮，进入书签编辑页</li>
+    <li>名称填：<b>导入到错题集</b>；网址栏：先复制下面代码框里的全部代码（点一下自动全选，Ctrl+C），再粘贴进去 → 保存</li>
+  </ol>
+  <p style="font-size:14px;margin-bottom:8px">✅ 以后使用：在 ChatGPT / Gemini 页面<b>用鼠标把批改内容拖蓝（选中）</b> → 点书签栏的「导入到错题集」→ 完成，连 Ctrl+C 都不用按。</p>
+  <p style="font-size:13px;color:var(--sub);margin-bottom:6px">📋 「导入已批改对话」版（日常主要用这个）：</p>
+  <textarea readonly style="min-height:64px;font-size:11px;font-family:monospace" onclick="this.select()">{{ bookmarklet_import }}</textarea>
+  <p style="font-size:13px;color:var(--sub);margin:10px 0 6px">📋 「存为待批改」版（新写的英文想让 AI 批改时用）：</p>
+  <textarea readonly style="min-height:64px;font-size:11px;font-family:monospace" onclick="this.select()">{{ bookmarklet }}</textarea>
+</div>
+{% endblock %}

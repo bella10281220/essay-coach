@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block body %}
+{% if c and c.demo %}
+<div class="demo-note">⚠️ 演示模式（AI 没连上，以下是模拟数据）。
+  {% if c.demo_reason %}<br>失败原因：<code>{{ c.demo_reason }}</code><br>{% endif %}
+  解决：首页 ⚙️ 设置 → 点「🔍 测试连接」排查；Ollama 用户先在终端运行 <code>ollama pull qwen2.5:7b</code>。
+</div>
+{% endif %}
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center">
+    <strong>{{ e['title'] }}{% if c and c.imported %} <span class="badge lav">外部导入</span>{% endif %}</strong>
+    <div style="display:flex;gap:8px">
+      {% if not c %}
+      {% if e['imported'] %}
+      <form action="{{ url_for('parse_import', essay_id=e['id']) }}" method="post" style="display:inline">
+        <button class="btn" type="submit">用 AI 整理成错题格式</button>
+      </form>
+      {% else %}
+      <form action="{{ url_for('correct', essay_id=e['id']) }}" method="post" style="display:inline">
+        <button class="btn" type="submit">提交 AI 批改</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      <a class="btn ghost small" href="{{ url_for('write_page') }}">← 返回</a>
+    </div>
+  </div>
+  {% if not c %}
+  {% if e['imported'] and e['raw_import'] %}
+  <details style="margin-top:12px">
+    <summary style="cursor:pointer;font-size:14px;color:var(--sub)">查看导入的原始内容</summary>
+    <p style="white-space:pre-wrap;font-size:13px;background:#f7faf8;padding:12px;border-radius:8px;margin-top:8px">{{ e['raw_import'] }}</p>
+  </details>
+  {% else %}
+  <p style="white-space:pre-wrap;color:var(--sub);margin-top:8px;font-size:14px">{{ e['content'] }}</p>
+  {% endif %}
+  {% endif %}
+</div>
+
+{% if c %}
+<div class="tabs">
+  <button class="active" onclick="showTab('full',this)">📝 全文批改</button>
+  <button onclick="showTab('sent',this)">逐句卡片</button>
+  <button onclick="showTab('cur',this)">当前水平版</button>
+  <button onclick="showTab('adv',this)">进阶版</button>
+  <button onclick="showTab('wished',this)">我想说的话</button>
+</div>
+
+<!-- ═══ 全文批改（默认）：原文 + 划线改字，点击看讲解 ═══ -->
+<div id="tab-full">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
+      <div style="font-size:13px;color:var(--sub)">
+        <span class="lg"><i class="dot del"></i>划掉 = 用错了</span>
+        <span class="lg"><i class="dot ins-error"></i>绿色字 = 改正</span>
+        <span class="lg"><i class="dot ins-optimize"></i>橙色字 = 更好的表达（原词不划掉）</span>
+        <span class="lg">点击彩色文字查看讲解</span>
+      </div>
+      <div>
+        <span class="badge score">{{ c.score }}/10</span>
+        <span class="badge err">错误 {{ c.error_count }}</span>
+        <span class="badge opt">可优化 {{ c.optimize_count }}</span>
+      </div>
+    </div>
+    <div class="essay-body">{{ annotated|safe }}</div>
+  </div>
+
+  <!-- 点击标注后显示的详情 + 追问 -->
+  <div class="card" id="detail" style="display:none;border-left:4px solid var(--green)">
+    <div id="detail-body"></div>
+    <div style="margin-top:12px;border-top:1px dashed var(--line);padding-top:12px">
+      <strong style="font-size:14px">对这句还有疑问？直接问：</strong>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <input type="text" id="qin" placeholder="例如：为什么不能用现在完成时？"
+               onkeydown="if(event.key==='Enter')sendQ()">
+        <button class="btn small" id="qbtn" onclick="sendQ()">提问</button>
+      </div>
+      <div id="qlist" style="margin-top:10px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 逐句卡片 ═══ -->
+<div id="tab-sent" style="display:none">
+  <div class="card">
+    <p style="color:var(--sub);font-size:14px;margin-bottom:12px">{{ c.summary }}</p>
+    {% for s in c.sentences %}
+    <div class="sentence {{ s.type }}">
+      <div class="orig"><span class="tag {{ s.type }}">{{ {'error':'错误','optimize':'可优化','complex_kept':'复杂句·已保留','good':'写得好'}[s.type] }}</span>{{ s.original }}</div>
+      {% if s.type != 'good' %}<div class="revised">{{ s.revised }}</div>{% endif %}
+      <div class="note">{{ s.note }}</div>
+    </div>
+    {% endfor %}
+    {% if c.vocab %}
+    <strong style="display:block;margin:16px 0 8px">词汇与表达</strong>
+    <table>
+      <tr><th>原表达</th><th>建议</th><th>说明</th></tr>
+      {% for v in c.vocab %}
+      <tr><td style="color:#d97b7b">{{ v.original }}</td><td style="color:var(--green-d)">{{ v.suggestion }}</td><td style="color:var(--sub)">{{ v.note }}</td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ═══ 双版本 ═══ -->
+<div id="tab-cur" style="display:none">
+  <div class="card">
+    <p style="color:var(--sub);font-size:13px;margin-bottom:8px">贴近你当前水平的改写，今天就能模仿。</p>
+    <p style="white-space:pre-wrap;background:#f4faf7;padding:16px;border-radius:12px;font-size:15px">{{ c.version_current }}</p>
+  </div>
+</div>
+<div id="tab-adv" style="display:none">
+  <div class="card">
+    <p style="color:var(--sub);font-size:13px;margin-bottom:8px">进阶版本：更高级的词汇与句式，作为学习目标。</p>
+    <p style="white-space:pre-wrap;background:var(--sky-bg);padding:16px;border-radius:12px;font-size:15px">{{ c.version_advanced }}</p>
+  </div>
+</div>
+
+<!-- ═══ 我想说的话 ═══ -->
+<div id="tab-wished" style="display:none">
+  <div class="card">
+    {% if e['wanted'] %}<p style="color:var(--sub);font-size:13px;margin-bottom:8px">你想表达：{{ e['wanted'] }}</p>{% endif %}
+    {% if c.wanted_phrases %}
+      {% for w in c.wanted_phrases %}
+      <div class="sentence good" style="margin-bottom:8px">
+        <div><span class="tag good">中文</span>{{ w.chinese }}</div>
+        <div class="revised">{{ w.english }}</div>
+        <div class="note">{{ w.note }}</div>
+      </div>
+      {% endfor %}
+    {% else %}
+    <p class="empty">本次没有填写"我想表达但不会说"的内容。写作文时可以填上。</p>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+.essay-body{font-size:17px;line-height:2.3;color:var(--ink)}
+.mk{cursor:pointer;border-radius:3px;transition:.15s}
+.mk.plain{border-bottom:1px dotted var(--sub)}
+.mk.plain:hover{background:var(--green-bg)}
+.mk:hover{filter:brightness(.92)}
+.mk.del{color:#c96a6a;text-decoration:line-through;text-decoration-thickness:2px;background:#fbeeec;padding:0 2px}
+.mk.ins{font-weight:600;padding:0 3px;border-bottom:2px solid transparent}
+.mk.ins.error{color:#3d8f6a;background:#e9f6ef;border-bottom-color:#7fc8a9}
+.mk.ins.optimize{color:#b07a1f;background:#fdf6e4;border-bottom-color:#e9b970}
+.mk.ins.complex_kept{color:#2f7fae;background:#eaf4fb;border-bottom-color:#79b8dc}
+.lg{margin-right:14px;display:inline-flex;align-items:center;gap:5px}
+.dot{width:12px;height:12px;border-radius:3px;display:inline-block}
+.dot.del{background:#fbeeec;border-top:2px solid #c96a6a}
+.dot.ins-error{background:#e9f6ef;border-bottom:2px solid #7fc8a9}
+.dot.ins-optimize{background:#fdf6e4;border-bottom:2px solid #e9b970}
+.dt-tag{font-size:11px;color:#fff;border-radius:8px;padding:2px 9px}
+</style>
+
+<script>
+var S = {{ annot_meta|tojson }};
+var TYPENAME = {error:'语法错误', optimize:'可以更地道', complex_kept:'复杂句 · 已保留', good:'写得好'};
+var TYPECLS  = {error:'err', optimize:'opt', complex_kept:'mint', good:'score'};
+var cur = -1;
+
+function showTab(id, btn){
+  document.querySelectorAll('.tabs button').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  ['full','sent','cur','adv','wished'].forEach(function(t){
+    document.getElementById('tab-'+t).style.display = t===id ? '' : 'none';
+  });
+}
+
+function showDetail(i){
+  cur = i;
+  var s = S[i];
+  var h = '<div><span class="dt-tag badge '+TYPECLS[s.type]+'">'+TYPENAME[s.type]+'</span></div>';
+  h += '<p style="margin:10px 0 4px"><b>原句：</b>' + esc(s.original) + '</p>';
+  if (s.type !== 'good') h += '<p style="margin:4px 0"><b>改为：</b>' + esc(s.revised) + '</p>';
+  h += '<p style="color:var(--sub);font-size:14px;margin:8px 0 0">' + esc(s.note) + '</p>';
+  document.getElementById('detail-body').innerHTML = h;
+  var ql = document.getElementById('qlist');
+  ql.innerHTML = '';
+  (s.qa || []).forEach(function(it){
+    var d = document.createElement('div');
+    d.className = 'qitem';
+    d.innerHTML = '<b>问：</b>'+esc(it.q)+' <span class="qtime">'+it.time+'</span><br><b style="color:var(--green-d)">答：</b>';
+    d.appendChild(document.createTextNode(it.a));
+    ql.appendChild(d);
+  });
+  var panel = document.getElementById('detail');
+  panel.style.display = '';
+  panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+  document.getElementById('qin').focus();
+}
+
+function esc(t){ var d=document.createElement('div'); d.textContent=t==null?'':t; return d.innerHTML; }
+
+function sendQ(){
+  if (cur < 0) return;
+  var input = document.getElementById('qin');
+  var q = input.value.trim();
+  if (!q) return;
+  var btn = document.getElementById('qbtn');
+  btn.disabled = true; btn.textContent = '思考中…';
+  fetch("{{ url_for('ask', essay_id=e['id']) }}", {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({question:q, skey:S[cur].skey})
+  }).then(function(r){return r.json();}).then(function(d){
+    btn.disabled = false; btn.textContent = '提问';
+    if (d.ok){
+      var div = document.createElement('div');
+      div.className = 'qitem';
+      div.innerHTML = '<b>问：</b>'+esc(q)+' <span class="qtime">'+d.time+'</span><br><b style="color:var(--green-d)">答：</b>';
+      div.appendChild(document.createTextNode(d.answer));
+      document.getElementById('qlist').appendChild(div);
+      S[cur].qa.push({q:q, a:d.answer, time:d.time});
+      input.value = '';
+    } else { alert(d.error); }
+  }).catch(function(){ btn.disabled=false; btn.textContent='提问'; alert('连接失败'); });
+}
+
+// 追问样式
+var st = document.createElement('style');
+st.textContent = '.qitem{font-size:13px;line-height:1.7;margin-bottom:8px;padding-bottom:8px;border-bottom:1px dashed var(--line)}'+
+  '.qitem:last-child{border-bottom:0;margin-bottom:0}.qtime{font-size:11px;color:var(--sub);margin-left:6px}';
+document.head.appendChild(st);
+</script>
+{% endif %}
+{% endblock %}

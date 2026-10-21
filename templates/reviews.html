@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <div class="toolbar" style="justify-content:space-between">
+    <strong>📖 进步回顾报告</strong>
+    <a class="btn ghost small" href="{{ url_for('index') }}">← 返回列表</a>
+  </div>
+  <p style="font-size:13px;color:var(--sub);margin-top:6px">当前回顾周期：每 {{ interval }} 篇（可在首页提交回顾时调整）</p>
+</div>
+
+{% for r in reviews %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
+    <strong>第 {{ reviews|length - loop.index0 }} 次回顾</strong>
+    <span style="font-size:13px;color:var(--sub)">{{ r.created_at }}</span>
+  </div>
+  {% if r.report.demo %}<div class="demo-note" style="margin-top:8px">⚠️ 演示模式数据（未检测到 Ollama）</div>{% endif %}
+
+  <strong style="display:block;margin:12px 0 6px">🌱 细小的进步</strong>
+  <ul style="padding-left:20px">
+    {% for p in r.report.progress %}<li style="margin-bottom:4px">{{ p }}</li>{% endfor %}
+  </ul>
+
+  <strong style="display:block;margin:12px 0 6px">🔁 反复出现的错误</strong>
+  <ul style="padding-left:20px">
+    {% for p in r.report.recurring %}<li style="margin-bottom:4px">{{ p }}</li>{% endfor %}
+  </ul>
+
+  <strong style="display:block;margin:12px 0 6px">🎯 下一步建议</strong>
+  <ul style="padding-left:20px">
+    {% for p in r.report.next_steps %}<li style="margin-bottom:4px">{{ p }}</li>{% endfor %}
+  </ul>
+
+  {% if r.report.comment %}
+  <p style="margin-top:10px;background:var(--green-bg);border-radius:8px;padding:10px 14px;font-size:14px">{{ r.report.comment }}</p>
+  {% endif %}
+</div>
+{% else %}
+<div class="card" style="text-align:center;color:var(--sub)">
+  还没有回顾报告。回首页点"生成回顾报告"（至少 2 篇已批改作文）即可生成第一份。
+</div>
+{% endfor %}
+{% endblock %}

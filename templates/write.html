@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block body %}
+
+<div class="card hero">
+  <h2>✏️ 今天的作文</h2>
+  <form action="{{ url_for('new_essay') }}" method="post">
+    {% if error %}<div class="demo-note">⚠️ {{ error }}</div>{% endif %}
+    <label>作文标题（不填按日期自动起名）</label>
+    <input type="text" name="title" value="{{ form_title }}" placeholder="例如：My Weekend">
+    <label>英语作文正文（必填）</label>
+    <textarea name="content" placeholder="把今天的英语作文写在这里…">{{ form_content }}</textarea>
+    <label>我想表达但不知道怎么用英文说（可选）</label>
+    <textarea name="wanted" style="min-height:80px" placeholder="例如：书看得很入迷，忘了时间">{{ form_wanted }}</textarea>
+    <div style="margin-top:14px">
+      <button class="btn" type="submit">保存并提交 AI 批改</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center">
+    <h2 style="margin:0">错题本 <small>{{ essays|length }} 篇</small></h2>
+    <form action="{{ url_for('review') }}" method="post" style="display:flex;gap:8px;align-items:center">
+      <span style="font-size:13px;color:var(--sub)">每</span>
+      <select name="interval" style="width:64px;border-radius:10px">
+        <option value="10" {% if interval==10 %}selected{% endif %}>10</option>
+        <option value="20" {% if interval==20 %}selected{% endif %}>20</option>
+        <option value="30" {% if interval==30 %}selected{% endif %}>30</option>
+      </select>
+      <span style="font-size:13px;color:var(--sub)">篇</span>
+      <button class="btn ghost small" type="submit">生成回顾</button>
+    </form>
+  </div>
+
+  {% if essays %}
+  <div id="flip" style="margin-top:14px">
+    {% for e in essays %}
+    <div class="slide" style="{{ 'display:none' if not loop.first }}">
+      <div style="border:1px solid var(--line);border-radius:14px;padding:20px;background:#fcfefc">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
+          <a href="{{ url_for('essay', essay_id=e['id']) }}" style="font-size:16px;font-weight:700">
+            {{ e['title'] }}</a>
+          <span style="font-size:12px;color:var(--sub)">{{ e['created_at']|timefmt }}</span>
+        </div>
+        <div style="margin:10px 0;display:flex;gap:8px;flex-wrap:wrap">
+          {% if e['corrected'] %}
+            <span class="badge score">{{ e['score'] or '-' }}/10</span>
+            <span class="badge err">错误 {{ e['errors'] or 0 }}</span>
+            <span class="badge opt">可优化 {{ e['opts'] or 0 }}</span>
+          {% elif e['imported'] %}
+            <span class="badge lav">已导入 · 待整理</span>
+          {% else %}
+            <span class="badge mint">还没批改</span>
+          {% endif %}
+        </div>
+        <div style="display:flex;gap:8px">
+          <a class="btn small" href="{{ url_for('essay', essay_id=e['id']) }}">
+            {{ '翻开看' if e['corrected'] else '去处理' }}</a>
+          <form action="{{ url_for('delete', essay_id=e['id']) }}" method="post" style="display:inline">
+            <button class="btn danger small" type="submit">删除</button>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    <div style="display:flex;justify-content:center;align-items:center;gap:12px;margin-top:10px">
+      <button class="pbtn" id="fprev">←</button>
+      <span id="finfo" style="font-size:13px;color:var(--sub)"></span>
+      <button class="pbtn" id="fnext">→</button>
+    </div>
+    <div class="dots" id="fdots"></div>
+  </div>
+  {% else %}
+  <p class="empty">错题本还是空的，在上面写第一篇吧。</p>
+  {% endif %}
+</div>
+
+<style>
+.pbtn{border:1px solid var(--line);background:#fff;border-radius:50%;width:38px;height:38px;
+  cursor:pointer;font-size:15px;color:var(--green-d);transition:.15s}
+.pbtn:hover{background:var(--green-bg)}
+.pbtn:disabled{opacity:.3;cursor:default}
+</style>
+<script>
+var slides = document.querySelectorAll('.slide'), fcur = 0;
+function fshow(i){
+  fcur = Math.max(0, Math.min(i, slides.length-1));
+  slides.forEach(function(s,k){ s.style.display = k===fcur ? '' : 'none'; });
+  document.getElementById('finfo').textContent = (fcur+1)+' / '+slides.length;
+  document.getElementById('fprev').disabled = (fcur===0);
+  document.getElementById('fnext').disabled = (fcur===slides.length-1);
+  var dots = document.getElementById('fdots');
+  if (!dots.children.length){
+    slides.forEach(function(_,k){
+      var d = document.createElement('i');
+      d.onclick = function(){ fshow(k); };
+      dots.appendChild(d);
+    });
+  }
+  dots.querySelectorAll('i').forEach(function(d,k){ d.classList.toggle('on', k===fcur); });
+}
+document.getElementById('fprev').onclick = function(){ fshow(fcur-1); };
+document.getElementById('fnext').onclick = function(){ fshow(fcur+1); };
+var fx=0, flip=document.getElementById('flip');
+flip.addEventListener('touchstart',function(e){fx=e.touches[0].clientX;},{passive:true});
+flip.addEventListener('touchend',function(e){
+  var dx=e.changedTouches[0].clientX-fx;
+  if (dx<-50) fshow(fcur+1); else if (dx>50) fshow(fcur-1);
+},{passive:true});
+if (slides.length) fshow(0);
+</script>
+{% endblock %}

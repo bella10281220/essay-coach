@@ -1,0 +1,10 @@
+英语作文错题集已启动 → http://127.0.0.1:5000
+Traceback (most recent call last):
+  File "D:\essay-coach\app.py", line 861, in <module>
+    print(f"\U0001f4f1 手机（连同一 WiFi）访问 → http://{lan_ip}:{port}")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'gbk' codec can't encode character '\U0001f4f1' in position 0: illegal multibyte sequence
+Traceback (most recent call last):
+  File "D:\essay-coach\app.py", line 14, in <module>
+    import requests
+ModuleNotFoundError: No module named 'requests'

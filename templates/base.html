@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>英语作文错题集</title>
+<style>
+:root{
+  --bg:#fafcfa; --card:#ffffff;
+  --ink:#374b41; --sub:#93a89d;
+  --green:#5cb894; --green-d:#46a07c; --green-bg:#eaf6f0;
+  --sky:#79b8dc; --sky-bg:#edf6fb;
+  --sand:#e9b970; --sand-bg:#fbf3e2;
+  --lav:#a5a3d8; --lav-bg:#f1f0fa;
+  --line:#e6efe9;
+  --radius:18px;
+  --shadow:0 2px 14px rgba(92,184,148,.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  color:var(--ink);line-height:1.75;background:var(--bg);min-height:100vh}
+a{color:var(--green-d);text-decoration:none}
+code{font-family:ui-monospace,monospace;font-size:.9em;background:var(--green-bg);padding:1px 6px;border-radius:6px}
+.container{max-width:760px;margin:0 auto;padding:28px 16px 70px}
+
+/* 顶栏 */
+.top{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;
+  max-width:760px;margin:0 auto;padding:20px 16px 0}
+.top h1{font-size:20px;font-weight:600}
+.top h1 em{font-style:normal;color:var(--green-d)}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+nav a{font-size:14px;color:var(--sub);padding:7px 14px;border-radius:12px;transition:.15s}
+nav a:hover{color:var(--green-d);background:var(--green-bg)}
+nav a.active{color:var(--green-d);background:var(--green-bg);font-weight:600}
+
+/* 卡片 */
+.card{background:var(--card);border-radius:var(--radius);padding:26px;margin-bottom:18px;
+  box-shadow:var(--shadow);border:1px solid var(--line)}
+.card h2{font-size:16px;margin-bottom:14px;font-weight:600}
+.card h2 small{font-weight:400;color:var(--sub);font-size:12px;margin-left:8px}
+.hero{background:linear-gradient(180deg,#f4fbf7,#fff);border:1px solid #dceee4}
+
+.btn{display:inline-block;background:var(--green-d);color:#fff;border:0;border-radius:12px;
+  padding:10px 24px;font-size:14px;cursor:pointer;transition:.15s}
+.btn:hover{background:var(--green);transform:translateY(-1px)}
+.btn.ghost{background:#fff;color:var(--green-d);border:1px solid var(--line)}
+.btn.danger{background:#fff;color:#d97b7b;border:1px solid #f3dddd}
+.btn.small{padding:5px 14px;font-size:13px}
+
+input[type=text],input[type=password],textarea,select{
+  width:100%;border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:14px;
+  font-family:inherit;background:#fcfefc;transition:.2s}
+input:focus,textarea:focus{outline:none;border-color:var(--green);
+  box-shadow:0 0 0 3px rgba(92,184,148,.12)}
+textarea{min-height:200px;resize:vertical;line-height:1.7}
+label{display:block;font-size:13px;color:var(--sub);margin:14px 0 5px}
+
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;padding:8px;color:var(--sub);font-weight:500;font-size:12px;
+  border-bottom:1px solid var(--line)}
+td{text-align:left;padding:10px 8px;border-bottom:1px solid #f2f7f4}
+tr:hover td{background:var(--green-bg)}
+
+.badge{display:inline-block;border-radius:10px;padding:2px 10px;font-size:12px}
+.badge.score{background:var(--sky-bg);color:var(--sky)}
+.badge.err{background:#fdeeee;color:#d97b7b}
+.badge.opt{background:var(--sand-bg);color:#b98a3a}
+.badge.mint{background:var(--green-bg);color:var(--green-d)}
+.badge.lav{background:var(--lav-bg);color:var(--lav)}
+.demo-note{background:var(--sand-bg);color:#a3803a;border-radius:12px;padding:9px 16px;
+  font-size:13px;margin-bottom:14px;border:1px dashed #ecd9ae}
+
+.sentence{border-left:4px solid var(--line);padding:12px 16px;margin-bottom:12px;
+  background:#fcfefc;border-radius:0 12px 12px 0}
+.sentence.error{border-color:#e89a9a;background:#fdf5f5}
+.sentence.optimize{border-color:var(--sand);background:#fdfaf2}
+.sentence.complex_kept{border-color:var(--green);background:#f2faf6}
+.sentence.good{border-color:var(--sky);background:#f3f9fd}
+.sentence .orig{font-weight:600;font-size:15px}
+.sentence .revised{margin-top:5px}
+.sentence .revised::before{content:"✎ ";color:var(--green-d)}
+.sentence .note{color:var(--sub);font-size:13px;margin-top:4px}
+.tag{font-size:11px;border-radius:8px;padding:2px 8px;margin-left:8px;vertical-align:2px;color:#fff}
+.tag.error{background:#e89a9a} .tag.optimize{background:var(--sand)}
+.tag.complex_kept{background:var(--green)} .tag.good{background:var(--sky)}
+
+.tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+.tabs button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:7px 16px;
+  cursor:pointer;font-size:14px;color:var(--sub);transition:.15s}
+.tabs button.active{background:var(--green-bg);color:var(--green-d);border-color:#cfe8db;font-weight:600}
+
+.score-big{font-size:38px;font-weight:700;color:var(--green-d)}
+footer{color:var(--sub);font-size:12px;text-align:center;margin-top:34px}
+.empty{text-align:center;color:var(--sub);padding:30px 0}
+.dots{display:flex;gap:6px;justify-content:center;margin-top:14px}
+.dots i{width:7px;height:7px;border-radius:50%;background:#dce8e0;cursor:pointer;transition:.2s}
+.dots i.on{background:var(--green);transform:scale(1.25)}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>错题<em>集</em> <small style="font-size:12px;color:var(--sub);font-weight:400">· 英语作文练习</small></h1>
+  <nav>
+    <a href="{{ url_for('write_page') }}" class="{{ 'active' if request.path=='/write' or request.path=='/' }}">✏️ 写作文</a>
+    <a href="{{ url_for('say') }}" class="{{ 'active' if request.path=='/say' }}">💬 我想说</a>
+    <a href="{{ url_for('shelf') }}" class="{{ 'active' if request.path=='/shelf' }}">📚 书架</a>
+    <a href="{{ url_for('import_page') }}" class="{{ 'active' if request.path=='/import' }}">🔖 书签导入</a>
+    <a href="{{ url_for('reviews') }}" class="{{ 'active' if request.path=='/reviews' }}">🌱 进步回顾</a>
+  </nav>
+</div>
+<div class="container">
+{% block body %}{% endblock %}
+<footer>数据保存在本地 · AI 批改由本机 Ollama 或在线 API 完成</footer>
+</div>
+</body>
+</html>

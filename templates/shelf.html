@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card hero">
+  <h2>📚 我的书架</h2>
+  <p style="font-size:14px;color:var(--sub)">每篇改好的文章都是一本书，点开就能重读修改后的全文。</p>
+</div>
+
+{% if books %}
+<div class="shelf-wrap">
+  <div class="shelf-board"></div>
+  <div class="shelf-row">
+    {% for b in books %}
+    <div class="book" onclick="openBook({{ b.id }})" title="{{ b.title }}">
+      <div class="spine c{{ b.id % 5 }}"></div>
+      <div class="cover c{{ b.id % 5 }}">
+        <div class="b-score">{{ b.score or '-' }}</div>
+        <div class="b-title">{{ b.title }}</div>
+        <div class="b-date">{{ b.date }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="shelf-board" style="margin-top:2px"></div>
+</div>
+
+<!-- 阅读书本 -->
+<div id="reader" style="display:none">
+  {% for b in books %}
+  <div class="reader-page" id="reader-{{ b.id }}">
+    <div style="max-width:640px;margin:0 auto">
+      <button class="btn ghost small" onclick="closeBook()" style="float:right">✕ 合上</button>
+      <p style="font-size:13px;color:var(--green-d);letter-spacing:2px">{{ b.date }} · 评分 {{ b.score or '-' }}/10</p>
+      <h2 style="margin:6px 0 18px">{{ b.title }}</h2>
+      <div class="book-text">{{ b.text }}</div>
+      {% if b.advanced %}
+      <details style="margin-top:24px">
+        <summary style="cursor:pointer;font-size:14px;color:var(--green-d)">查看进阶版</summary>
+        <div class="book-text" style="background:var(--sky-bg);border-radius:12px;padding:16px;margin-top:10px">{{ b.advanced }}</div>
+      </details>
+      {% endif %}
+      <div style="margin-top:24px">
+        <a class="btn ghost small" href="{{ url_for('essay', essay_id=b.id) }}">📝 回看批改标注</a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><p class="empty">书架还是空的。批改完成的文章会自动摆上来。</p></div>
+{% endif %}
+
+<style>
+.shelf-wrap{position:relative;padding:0 8px}
+.shelf-row{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;padding:14px 10px 0}
+.shelf-board{height:12px;background:linear-gradient(180deg,#d9c9ae,#c9b393);border-radius:4px;box-shadow:0 4px 8px rgba(0,0,0,.12)}
+.book{cursor:pointer;transition:.18s;filter:drop-shadow(2px 4px 6px rgba(90,70,40,.25))}
+.book:hover{transform:translateY(-8px) rotate(-1deg)}
+.spine{width:14px;height:170px;border-radius:6px 0 0 6px;margin-left:-8px;display:inline-block;vertical-align:bottom}
+.cover{width:120px;height:170px;border-radius:0 10px 10px 0;display:inline-block;vertical-align:bottom;
+  padding:14px 12px;position:relative;color:#fff}
+.c0{background:linear-gradient(160deg,#69b79a,#4a9a7d)} .c1{background:linear-gradient(160deg,#74add8,#5491bd)}
+.c2{background:linear-gradient(160deg,#e2a95f,#c98a3e)} .c3{background:linear-gradient(160deg,#a5a3d8,#8482c0)}
+.c4{background:linear-gradient(160deg,#e58f8f,#c96a6a)}
+.cover::before{content:"";position:absolute;left:10px;top:0;bottom:0;width:2px;background:rgba(255,255,255,.35)}
+.cover.c0::before,.cover.c1::before,.cover.c2::before,.cover.c3::before,.cover.c4::before{background:rgba(255,255,255,.35)}
+.b-score{position:absolute;top:12px;right:12px;font-size:12px;background:rgba(255,255,255,.25);border-radius:10px;padding:1px 8px}
+.b-title{font-size:14px;font-weight:600;line-height:1.5;margin-top:26px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.b-date{position:absolute;bottom:12px;left:22px;font-size:11px;opacity:.85}
+#reader{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:9999;overflow-y:auto;
+  background:#fdfcf8;padding:46px 20px 80px;
+  background-image:radial-gradient(rgba(92,184,148,.05) 1px,transparent 1px);background-size:22px 22px}
+.reader-page{display:none}
+.reader-page.open{display:block}
+.book-text{font-size:17px;line-height:2.1;color:var(--ink);white-space:pre-wrap}
+</style>
+
+<script>
+function openBook(id){
+  document.querySelectorAll('.reader-page').forEach(function(p){p.classList.remove('open');});
+  document.getElementById('reader-'+id).classList.add('open');
+  document.getElementById('reader').style.display = 'block';
+  document.body.style.overflow = 'hidden';
+}
+function closeBook(){
+  document.getElementById('reader').style.display = 'none';
+  document.body.style.overflow = '';
+}
+</script>
+{% endblock %}

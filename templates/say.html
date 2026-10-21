@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block body %}
+
+<div class="card hero">
+  <h2>💡 我想说，但不会用英语说</h2>
+  <p style="font-size:14px;color:var(--sub);margin-bottom:4px">
+    打出你想表达的中文意思，AI 会给你 <strong>3 种地道说法</strong>（日常口语 / 书面写作 / 高级表达），
+    并收藏到下面的<strong>好句收藏</strong>。
+  </p>
+  {% if result and result.demo %}
+  <div class="demo-note" style="margin-top:10px">⚠️ 演示模式：未检测到 Ollama / API，以下为模拟数据。</div>
+  {% endif %}
+  <form action="{{ url_for('say') }}" method="post" style="margin-top:12px">
+    <input type="text" name="chinese" value="{{ query }}" placeholder="例如：书看得很入迷，忘了时间" style="font-size:16px">
+    <div style="margin-top:12px">
+      <button class="btn" type="submit">告诉我怎么说 →</button>
+    </div>
+  </form>
+</div>
+
+{% if result %}
+<div class="card">
+  <h2>「{{ query }}」的英文说法</h2>
+  {% for o in result.options %}
+  <div class="sentence {{ 'good' if loop.index==1 else 'optimize' }}">
+    <div class="orig"><span class="tag {{ 'good' if loop.index==1 else 'optimize' }}">{{ o.style }}</span>{{ o.english }}</div>
+    <div class="note">{{ o.note }}</div>
+  </div>
+  {% endfor %}
+  {% if result.related %}
+  <p style="font-size:13px;color:var(--sub);margin-top:6px">
+    🔗 相关表达：{% for r in result.related %}{{ r }}{% if not loop.last %} · {% endif %}{% endfor %}
+  </p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>💬 好句收藏（{{ phrases|length }} 条）</h2>
+  <table>
+    <tr><th>我想表达</th><th>地道英文</th><th>时间</th><th></th></tr>
+    {% for p in phrases %}
+    <tr>
+      <td style="color:var(--sub)">{{ p['chinese'] }}</td>
+      <td><strong>{{ p['english'] }}</strong>
+        {% if p['note'] %}<br><span style="font-size:12px;color:var(--sub)">{{ p['note'] }}</span>{% endif %}
+      </td>
+      <td style="font-size:12px;color:var(--sub)">{{ p['created_at']|timefmt }}</td>
+      <td>
+        <form action="{{ url_for('delete_phrase') }}" method="post" style="display:inline">
+          <input type="hidden" name="english" value="{{ p['english'] }}">
+          <button class="btn danger small" type="submit">删</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="empty">积累本还是空的，上面输入一句中文试试。</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}
