@@ -1,0 +1,6 @@
+data/
+__pycache__/
+start-log.txt
+启动日志.txt
+screenshots/
+*.db
