@@ -3,49 +3,46 @@ chcp 65001 >nul
 title 拾贝集 - 在线更新
 cd /d "%~dp0"
 
-echo ============================================
-echo   拾贝集 - 在线更新
-echo ============================================
-echo.
+set LOG=更新日志.txt
+echo ====== 更新开始 %date% %time% ====== > "%LOG%"
 
-set DOWNLOAD_URL=https://api.github.com/repos/bella10281220/essay-coach/zipball/main
-set AUTH=
-if exist "%~dp0gh-token.txt" set /p AUTH=<"%~dp0gh-token.txt"
-
-echo [1/4] 正在下载最新版本...
-if defined AUTH (
-  curl -sL -w "%%{http_code}" -H "Authorization: Bearer %AUTH%" -o "%TEMP%\essay-coach-update.zip" "%DOWNLOAD_URL%" > "%TEMP%\essay-coach-http.txt"
-) else (
-  curl -sL -w "%%{http_code}" -o "%TEMP%\essay-coach-update.zip" "%DOWNLOAD_URL%" > "%TEMP%\essay-coach-http.txt"
-)
-set /p HTTPCODE=<"%TEMP%\essay-coach-http.txt"
-echo       服务器返回码：%HTTPCODE%
-
-if not "%HTTPCODE%"=="200" (
+echo [1/4] 正在下载最新版本（详见 更新日志.txt）...
+powershell -NoProfile -Command ^
+ "$ErrorActionPreference='Stop';" ^
+ "$h=@{};" ^
+ "if (Test-Path 'gh-token.txt') { $h['Authorization']='Bearer '+((Get-Content 'gh-token.txt' -Raw).Trim()) };" ^
+ "try { Invoke-WebRequest -Uri 'https://api.github.com/repos/bella10281220/essay-coach/zipball/main' -OutFile \"$env:TEMP\essay-coach-update.zip\" -Headers $h -UseBasicParsing; 'download ok' | Out-File '%LOG%' -Append }" ^
+ "catch { $_.Exception.Message | Out-File '%LOG%' -Append; exit 1 }"
+if errorlevel 1 (
   echo.
-  echo ❌ 下载失败（返回码 %HTTPCODE%）。原因对照：
-  echo    · 404  → 仓库还是【私密】状态。两个办法二选一：
-  echo        办法A：打开 GitHub 仓库页面 → Settings → 拉到最底部 Danger Zone
-  echo               → Change visibility → 改成 Public，然后再双击本文件
-  echo        办法B：在项目文件夹里新建一个记事本文件，命名为 gh-token.txt，
-  echo               里面只粘贴你的 GitHub token（一整行），保存后再试
-  echo    · 其他 → 网络问题，请检查能否打开 github.com
+  echo ❌ 下载失败！详细原因已写入 更新日志.txt
+  echo    现在帮你打开手动下载页面：把下载的 zip 解压覆盖到本文件夹即可（不会覆盖你的文章数据）。
+  start "" "https://github.com/bella10281220/essay-coach/archive/refs/heads/main.zip"
   echo.
   pause
   exit /b 1
 )
 
 echo [2/4] 备份数据（你的作文不会丢）...
-copy /y data\essays.db "%TEMP%\essays.db.bak" >nul
+copy /y data\essays.db "%TEMP%\essays.db.bak" >nul 2>&1
 
 echo [3/4] 覆盖更新代码（数据保留）...
-powershell -Command "Expand-Archive -Force '%TEMP%\essay-coach-update.zip' '%TEMP%\essay-coach-update'"
-for /d %%d in ("%TEMP%\essay-coach-update\*essay-coach*") do xcopy /e /y /i "%%d" . /exclude:update-exclude.txt >nul
+powershell -NoProfile -Command ^
+ "$ErrorActionPreference='Stop';" ^
+ "Expand-Archive -Force \"$env:TEMP\essay-coach-update.zip\" \"$env:TEMP\essay-coach-update\";" ^
+ "$d = Get-ChildItem \"$env:TEMP\essay-coach-update\" | Select-Object -First 1;" ^
+ "Copy-Item (Join-Path $d.FullName '*') -Destination '.' -Recurse -Force -Exclude 'data','essays.db','gh-token.txt','更新日志.txt';" ^
+ "'extract ok' | Out-File '%LOG%' -Append"
 
-echo [4/4] 恢复数据...
-copy /y "%TEMP%\essays.db.bak" data\essays.db >nul
+echo [4/4] 恢复数据检查...
+if exist data\essays.db (
+  echo       ✅ 你的文章数据完好
+) else (
+  copy /y "%TEMP%\essays.db.bak" data\essays.db >nul 2>&1
+)
 
 echo.
-echo ✅ 更新完成！双击「启动错题集.bat」即可使用新版本。
+echo ✅ 更新完成！关掉旧的启动窗口，重新双击桌面「拾贝集」图标即可。
+echo    页脚显示「拾贝集 v2.6」说明已更新到最新。
 echo.
 pause
