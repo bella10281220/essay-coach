@@ -5,7 +5,7 @@
 """
 import difflib
 
-VERSION = "2.6"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "2.7"   # 页脚显示，用于确认正在运行的是新版本
 import html as html_mod
 import json
 import os
@@ -393,7 +393,8 @@ def shelf():
         books.append({
             "id": e["id"], "title": c.get("book_title") or e["title"],
             "date": time.strftime("%Y-%m-%d", time.localtime(e["created_at"])),
-            "score": c.get("score"), "text": c.get("version_current") or "",
+            "score": c.get("score"),
+            "text": c.get("version_current") or e["content"] or "",
             "advanced": c.get("version_advanced") or "",
         })
     return render_template("shelf.html", books=books)
@@ -661,13 +662,14 @@ PARSE_PROMPT = """你是一位英语写作老师的数据整理助手。下面�
    - 语法正确但表达优化 → "optimize"
    - 长句/从句/倒装等复杂结构的修改 → "complex_kept"
    - 表扬的句子 → "good"
-   注意区分学生的原句和 AI 的改句，original 必须是学生原句，revised 是修改后。
-2. vocab：提取词汇/表达建议（有就填，没有给空数组）。
-3. version_current / version_advanced：如果原文中有整篇改写或两个版本就填入；只有一个版本就 version_current 填它、version_advanced 留空字符串；都没有则都留空。
-4. summary：用中文写一句总体评价（概括这段批改的核心结论）。score 给出合理的 1-10 分估计；error_count / optimize_count 按整理结果统计。
-5. book_title：给这篇作文起一个简短的书名（4-12 个字，像书架上书的名字，例如「环境污染之我见」「难忘的一次旅行」），根据作文主题起，不要带日期。
-6. wanted_phrases：空数组。
-7. 忽略寒暄、追问、与批改无关的内容。找不到任何批改信息时，sentences 给空数组并在 summary 说明。
+   注意区分学生的原句和 AI 的改句。**original 必须逐字复制学生的原句，一个词都不能改、不能合并、不能增删标点；revised 是修改后的完整句子**。
+2. note：**必须完整保留原文里给出的每一条理由**，逐条列出（可用 ①②③ 或换行分隔），一条都不许省略、不许概括成一句话。原文没给理由的才留空。
+3. vocab：**提取原文中提到的所有词汇/表达/固定短语建议**——只要批改里出现了"XX 应该用 YY"之类的内容，都要变成一条 {original, suggestion, note}，这是短语本的数据来源，宁多勿漏。
+4. version_current / version_advanced：如果原文中有整篇改写或两个版本就填入；只有一个版本就 version_current 填它、version_advanced 留空字符串；都没有则都留空。
+5. summary：用中文写一句总体评价（概括这段批改的核心结论）。score 给出合理的 1-10 分估计；error_count / optimize_count 按整理结果统计。
+6. book_title：给这篇作文起一个简短的书名（4-12 个字，像书架上书的名字，例如「环境污染之我见」「难忘的一次旅行」），根据作文主题起，不要带日期。
+7. wanted_phrases：空数组。
+8. 忽略寒暄、追问、与批改无关的内容。找不到任何批改信息时，sentences 给空数组并在 summary 说明。
 
 只输出 JSON：
 {"summary": "...", "score": 0, "error_count": 0, "optimize_count": 0, "book_title": "...",
@@ -882,6 +884,43 @@ def phrase_book():
                           "original": orig, "suggestion": sug,
                           "note": (v.get("note") or "").strip()})
     return render_template("phrases.html", items=items)
+
+
+
+@app.route("/api/update", methods=["POST"])
+def api_update():
+    """应用内一键更新：自己从 GitHub 下载最新代码覆盖（绝不碰 data 数据）"""
+    try:
+        import io as io_mod
+        import zipfile
+        base = os.path.dirname(os.path.abspath(__file__))
+        headers = {}
+        token_file = os.path.join(base, "gh-token.txt")
+        if os.path.exists(token_file):
+            headers["Authorization"] = "Bearer " + open(token_file).read().strip()
+        r = requests.get(
+            "https://api.github.com/repos/bella10281220/essay-coach/zipball/main",
+            headers=headers, timeout=90)
+        r.raise_for_status()
+        zf = zipfile.ZipFile(io_mod.BytesIO(r.content))
+        root = zf.namelist()[0].split("/")[0]
+        skip_words = ("data/", "gh-token.txt", "更新日志.txt", "启动日志.txt", "start-log.txt")
+        updated = 0
+        for name in zf.namelist():
+            rel = name[len(root) + 1:]
+            if not rel or rel.endswith("/"):
+                continue
+            if any(w in rel for w in skip_words) or rel == "essays.db":
+                continue
+            dest = os.path.join(base, rel)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with zf.open(name) as src, open(dest, "wb") as out:
+                out.write(src.read())
+            updated += 1
+        return jsonify({"ok": True, "updated": updated,
+                        "message": f"✅ 已更新 {updated} 个文件！请完全关闭拾贝集（关掉窗口/黑框），再双击桌面图标重新打开，页脚显示 v{VERSION} 即最新。"})
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, "error": f"更新失败：{e}"}), 500
 
 
 @app.route("/settings", methods=["GET", "POST"])
