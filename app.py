@@ -861,23 +861,61 @@ def settings():
     return redirect(url_for("settings", saved=1))
 
 
+def _u(s):
+    """把中文等非 ASCII 字符转成 \\uXXXX，保证书签在任何浏览器编码下都不乱码"""
+    out = []
+    for ch in s:
+        if ord(ch) < 128:
+            out.append(ch)
+        else:
+            out.append("\\u%04x" % ord(ch))
+    return "".join(out)
+
+
 def make_bookmarklet(mode="new"):
-    """生成抓取书签的 JS 代码（拼进 href，注意转义引号）"""
-    ok_msg_imported = ("\\u2705 \\u5df2\\u5bfc\\u5165\\u5e76\\u81ea\\u52a8\\u6574\\u7406\\uff01"
-                       "\\u6253\\u5f00\\u9519\\u9898\\u96c6\\u2192\\u4e66\\u67b6\\u5c31\\u80fd\\u770b\\u5230\\u8fd9\\u7bc7\\u6587\\u7ae0\\u3002")
-    ok_msg_new = ("\\u2705 \\u5df2\\u5b58\\u5165\\u9519\\u9898\\u96c6\\uff0c\\u56de\\u53bb\\u70b9\\u300cAI \\u6279\\u6539\\u300d\\u5c31\\u884c\\u3002")
-    js = (
-        "javascript:(function(){var t=(window.getSelection?window.getSelection().toString():'');"
-        "if(!t||t.length<80){t=(document.body?document.body.innerText:'').replace(/\\n{3,}/g,'\\n\\n').trim();t=t.slice(0,12000);}"
-        "if(!t){alert('\\u8fd9\\u4e2a\\u9875\\u9762\\u6ca1\\u6709\\u53ef\\u4ee5\\u6536\\u85cf\\u7684\\u6587\\u5b57');return;}"
-        "fetch('http://127.0.0.1:5000/api/capture',{method:'POST',"
-        "headers:{'Content-Type':'application/json'},"
-        f"body:JSON.stringify({{content:t,title:document.title,mode:'{mode}'}})}})"
-        ".then(function(r){return r.json()})"
-        f".then(function(d){{alert(d.ok?(d.mode==='imported'?('{ok_msg_imported}'+(d.parsed?'':'\\n\\uff08AI \\u6682\\u65f6\\u6ca1\\u6574\\u7406\\u6210\\u529f\\uff0c\\u5df2\\u5148\\u5b58\\u539f\\u6587\\uff0c\\u53ef\\u5728\\u9519\\u9898\\u96c6\\u91cc\\u624b\\u52a8\\u70b9\\u6574\\u7406\\uff09')):'{ok_msg_new}'):'\\u5931\\u8d25: '+d.error)}})"
-        ".catch(function(){alert('\\u65e0\\u6cd5\\u8fde\\u63a5\\u9519\\u9898\\u96c6\\uff01\\u8bf7\\u786e\\u8ba4\\u5df2\\u53cc\\u51fb\\u542f\\u52a8\\u6587\\u4ef6\\uff0c\\u5e76\\u80fd\\u6253\\u5f00 http://127.0.0.1:5000')});})();"
-    )
-    return js.replace("'", "%27").replace('"', "%22")
+    """生成抓取书签的 JS 代码：带全程浮动提示条，没选字时自动抓整页"""
+    tpl = r"""
+(function(){
+function toast(html,color,sticky){var d=document.createElement('div');
+d.style.cssText='position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2147483647;max-width:86vw;padding:11px 20px;border-radius:24px;font-size:14px;font-family:sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.28);color:#fff;background:'+(color||'#555')+';line-height:1.6';
+d.innerHTML=html;document.body.appendChild(d);
+if(!sticky){setTimeout(function(){d.remove();},9000);}
+return d;}
+var s=(window.getSelection?window.getSelection().toString():'');
+var whole=false;
+if(!s||s.length<80){s=(document.body?document.body.innerText:'').replace(/\n{3,}/g,'\n\n').trim().slice(0,12000);whole=true;}
+if(!s){toast('__ZH_NOTEXT__','#b98a3a');return;}
+var tip=toast('__ZH_WAIT__'+(whole?'__ZH_PAGE__':'__ZH_SEL__')+'('+s.length+' __ZH_CHARS__)&hellip;','#555',true);
+fetch('http://127.0.0.1:5000/api/capture',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:s,title:document.title,mode:'__MODE__'})})
+.then(function(r){return r.json()})
+.then(function(d){
+if(!d.ok){tip.style.background='#d97b7b';tip.innerHTML='__ZH_FAIL__'+(d.error||'?')+'__ZH_CLOSE__';tip.onclick=function(){tip.remove()};return;}
+var link=' <a style="color:#ffe9a8;text-decoration:underline" href="'+d.url+'" target="_blank">__ZH_GO__</a>';
+tip.style.background='#46a07c';
+if(d.mode==='imported'){tip.innerHTML=d.parsed?'__ZH_OK1__'+link:'__ZH_OK2__'+link;}
+else{tip.innerHTML='__ZH_OK3__'+link;}})
+.catch(function(){tip.style.background='#d97b7b';tip.innerHTML='__ZH_CONN__';});
+})()
+"""
+    zh = {
+        "__ZH_NOTEXT__": _u("这个页面没有可收藏的文字"),
+        "__ZH_WAIT__": _u("⏳ 正在收藏"),
+        "__ZH_PAGE__": _u("整页"),
+        "__ZH_SEL__": _u("所选内容"),
+        "__ZH_CHARS__": _u("字"),
+        "__ZH_FAIL__": _u("❌ 收藏失败："),
+        "__ZH_CLOSE__": _u("（点我关闭）"),
+        "__ZH_GO__": _u("去看看 →"),
+        "__ZH_OK1__": _u("✅ 已收藏并自动整理成书！"),
+        "__ZH_OK2__": _u("⚠️ 已存下原文，但 AI 整理没成功，可去错题集手动点整理"),
+        "__ZH_OK3__": _u("✅ 已收藏！"),
+        "__ZH_CONN__": _u('❌ 连不上错题集！请先双击桌面的「拾贝集」图标启动（<a style="color:#ffe9a8;text-decoration:underline" href="http://127.0.0.1:5000" target="_blank">试试能否打开</a>）'),
+        "__MODE__": mode,
+    }
+    for k, v in zh.items():
+        tpl = tpl.replace(k, v)
+    js = " ".join(tpl.split())  # 压掉换行，保证是一行 URL
+    return "javascript:" + js.replace("'", "%27").replace('"', "%22")
 
 
 def try_auto_parse(essay_id, content):
