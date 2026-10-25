@@ -4,8 +4,9 @@
 启动: python3 app.py  → 浏览器打开 http://127.0.0.1:5000
 """
 import difflib
+import threading
 
-VERSION = "2.8"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "2.9"   # 页脚显示，用于确认正在运行的是新版本
 import html as html_mod
 import json
 import os
@@ -926,8 +927,20 @@ def api_update():
             with zf.open(name) as src, open(dest, "wb") as out:
                 out.write(src.read())
             updated += 1
+        # Windows 下自动重启：拉起重启脚本（它会清掉旧进程并用无窗口方式重启服务）
+        if os.name == "nt":
+            try:
+                import subprocess
+                subprocess.Popen(["wscript.exe", os.path.join(base, "重启更新.vbs")],
+                                 cwd=base, close_fds=True)
+                threading.Timer(1.5, lambda: os._exit(0)).start()
+                auto = "服务正在自动重启，几秒后页面会自动刷新为新版本。"
+            except Exception:  # noqa: BLE001
+                auto = "请手动重启拾贝集（关掉窗口再双击桌面图标）。"
+        else:
+            auto = "请手动重启拾贝集。"
         return jsonify({"ok": True, "updated": updated,
-                        "message": f"✅ 已更新 {updated} 个文件！请完全关闭拾贝集（关掉窗口/黑框），再双击桌面图标重新打开，页脚显示 v{VERSION} 即最新。"})
+                        "message": f"✅ 已更新 {updated} 个文件！{auto}"})
     except Exception as e:  # noqa: BLE001
         return jsonify({"ok": False, "error": f"更新失败：{e}"}), 500
 
