@@ -54,13 +54,17 @@ function setMode(m){
     <li>保存 ✅</li>
   </ol>
   <div style="background:#eaf7f0;border:1px solid #bfe6d2;border-radius:10px;padding:10px 14px;font-size:14px;margin:10px 0 14px">
-    <b>🧪 装好了吗？10 秒自检：</b>随便打开一个网页，<b>什么都不选中</b>，直接点书签栏的「导入到错题集」——
-    如果弹出<b>「请先在网页中选中要收藏的文字」</b>，说明书签已装好。
-    如果什么都没弹出来，就是第 5 步的 <code>javascript:</code> 前缀没补上。
+    <b>🧪 装好了吗？10 秒自检：</b>随便打开一个网页，直接点书签栏的「导入到错题集」——
+    页面顶部弹出<b>「⏳ 正在收藏整页…」</b>然后变成绿色 ✅（或红色报错原因），说明书签已装好。
+    如果<b>完全没有任何提示</b>，就是第 5 步的 <code>javascript:</code> 前缀没补上。
   </div>
   <p style="font-size:14px;margin-bottom:8px">✅ 以后使用：在 ChatGPT / Gemini 页面点书签栏的「导入到错题集」即可——
     <b>什么都不选 = 自动抓取整个对话页面</b>；想只收某一段，就先用鼠标拖蓝选中（80 字以上）再点书签。
-    弹出 ✅ 后，文章已<b>自动整理并存入书架</b>。</p>
+    <b>每一步都有提示条</b>：页面顶部会依次显示「正在收藏…」→「✅ 已收藏（带『去看看』链接）」或红色报错原因，绝不会没反应。</p>
+  <div style="background:#fdf3e2;border:1px dashed #ecd9ae;border-radius:10px;padding:10px 14px;font-size:13.5px;margin:10px 0">
+    🔄 <b>之前装过旧版书签？</b>如果点书签弹的是「请先在网页中选中要收藏的文字」，说明还是旧版——
+    请按上面步骤重新复制下面的新代码、更新书签（旧版只抓选中一小段，新版才抓整页）。
+  </div>
   <p style="font-size:13px;color:var(--sub);margin-bottom:6px">📋 「导入已批改对话」版（日常主要用这个，自动整理入书架）：</p>
   <textarea readonly style="min-height:64px;font-size:11px;font-family:monospace" onclick="this.select()">{{ bookmarklet_import|safe }}</textarea>
   <p style="font-size:13px;color:var(--sub);margin:10px 0 6px">📋 「存为待批改」版（新写的英文想让 AI 批改时用）：</p>
