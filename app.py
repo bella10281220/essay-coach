@@ -842,13 +842,23 @@ def delete_phrase():
     return redirect(url_for("say"))
 
 
-@app.route("/settings", methods=["POST"])
+@app.route("/settings", methods=["GET", "POST"])
 def settings():
+    if request.method == "GET":
+        return render_template(
+            "settings.html",
+            provider=get_setting("provider", "ollama"),
+            model=get_setting("model", ""),
+            api_base=get_setting("api_base", ""),
+            api_key=get_setting("api_key", ""),
+            api_model=get_setting("api_model", ""),
+            interval=get_setting("review_interval", "10"),
+            presets=API_PRESETS,
+        )
     for key in ("review_interval", "model", "provider", "api_base", "api_key", "api_model"):
         if key in request.form:
             set_setting(key, request.form[key].strip())
-    return redirect(request.referrer + "?saved=1" if request.referrer
-                    else url_for("index", saved=1))
+    return redirect(url_for("settings", saved=1))
 
 
 def make_bookmarklet(mode="new"):
@@ -858,7 +868,8 @@ def make_bookmarklet(mode="new"):
     ok_msg_new = ("\\u2705 \\u5df2\\u5b58\\u5165\\u9519\\u9898\\u96c6\\uff0c\\u56de\\u53bb\\u70b9\\u300cAI \\u6279\\u6539\\u300d\\u5c31\\u884c\\u3002")
     js = (
         "javascript:(function(){var t=(window.getSelection?window.getSelection().toString():'');"
-        "if(!t){alert('\\u8bf7\\u5148\\u5728\\u7f51\\u9875\\u4e2d\\u7528\\u9f20\\u6807\\u62d6\\u84dd\\uff08\\u9009\\u4e2d\\uff09\\u8981\\u6536\\u85cf\\u7684\\u6587\\u5b57\\uff0c\\u518d\\u70b9\\u8fd9\\u4e2a\\u4e66\\u7b7e');return;}"
+        "if(!t||t.length<80){t=(document.body?document.body.innerText:'').replace(/\\n{3,}/g,'\\n\\n').trim();t=t.slice(0,12000);}"
+        "if(!t){alert('\\u8fd9\\u4e2a\\u9875\\u9762\\u6ca1\\u6709\\u53ef\\u4ee5\\u6536\\u85cf\\u7684\\u6587\\u5b57');return;}"
         "fetch('http://127.0.0.1:5000/api/capture',{method:'POST',"
         "headers:{'Content-Type':'application/json'},"
         f"body:JSON.stringify({{content:t,title:document.title,mode:'{mode}'}})}})"
