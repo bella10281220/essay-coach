@@ -4,6 +4,8 @@
 启动: python3 app.py  → 浏览器打开 http://127.0.0.1:5000
 """
 import difflib
+
+VERSION = "2.4"   # 页脚显示，用于确认正在运行的是新版本
 import html as html_mod
 import json
 import os
@@ -29,6 +31,11 @@ API_PRESETS = {
 }
 
 app = Flask(__name__)
+
+
+@app.context_processor
+def inject_version():
+    return {"version": VERSION}
 app.jinja_env.filters["timefmt"] = lambda ts: time.strftime(
     "%Y-%m-%d %H:%M", time.localtime(ts))
 
@@ -943,7 +950,13 @@ def try_auto_parse(essay_id, content):
 def delete(essay_id):
     db().execute("DELETE FROM essays WHERE id=?", (essay_id,))
     db().commit()
-    return redirect(url_for("index"))
+    # 删完回到原页面（书架删书回书架、写作页删作文回写作页）
+    ref = request.referrer or ""
+    if "/shelf" in ref:
+        return redirect(url_for("shelf"))
+    if "/essay/" in ref:
+        return redirect(url_for("write_page"))
+    return redirect(ref or url_for("index"))
 
 
 if __name__ == "__main__":
