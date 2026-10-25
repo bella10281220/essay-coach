@@ -42,6 +42,7 @@
         <a class="btn ghost small" href="{{ url_for('essay', essay_id=b.id) }}">📝 回看批改标注</a>
         <input type="text" id="rn-{{ b.id }}" value="{{ b.title }}" style="width:200px;padding:6px 10px">
         <button class="btn ghost small" onclick="renameBook({{ b.id }})">✎ 改书名</button>
+        <button class="btn danger small" onclick="deleteBook({{ b.id }})">🗑 把这本书扔掉</button>
       </div>
     </div>
   </div>
@@ -89,6 +90,12 @@ function renameBook(id){
   fetch('/rename/'+id, {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({name:name})}).then(function(r){return r.json();}).then(function(d){
     if (d.ok){ location.reload(); } else { alert(d.error); }
+  });
+}
+function deleteBook(id){
+  if (!confirm('确定要把这本书扔掉吗？（连同批改记录一起删除，无法恢复）')) return;
+  fetch('/delete/'+id, {method:'POST'}).then(function(){
+    location.href = '/shelf';
   });
 }
 function closeBook(){
