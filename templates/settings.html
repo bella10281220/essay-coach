@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h2>⚙️ 设置 <small>模型来源 / API</small></h2>
+  {% if request.args.get('saved') %}
+  <div class="demo-note" style="background:var(--green-bg);color:var(--green-d);border-color:#bfe0cd">
+    ✅ 设置已保存！记得点下面的「🔍 测试连接」确认 AI 能连上。
+  </div>
+  {% endif %}
+  <form action="{{ url_for('settings') }}" method="post">
+    <label>回顾周期（每写完几篇生成一次进步报告）</label>
+    <select name="review_interval" style="width:84px;text-align:center;padding:8px 10px">
+      {% for n in [5,10,20,30,50] %}
+      <option value="{{ n }}" {% if interval|int==n %}selected{% endif %}>{{ n }}</option>
+      {% endfor %}
+    </select>
+    <label>模型来源</label>
+    <select name="provider" id="provider" onchange="toggleProvider()" style="width:auto;border-radius:10px">
+      <option value="ollama" {% if provider=='ollama' %}selected{% endif %}>本机 Ollama（免费）</option>
+      <option value="api" {% if provider=='api' %}selected{% endif %}>在线 API（GPT / DeepSeek 等）</option>
+    </select>
+    <div id="ollama-box">
+      <label>Ollama 模型（先 <code>ollama pull 模型名</code>）</label>
+      <input type="text" name="model" value="{{ model }}" placeholder="qwen2.5:7b">
+    </div>
+    <div id="api-box">
+      <label>API 地址（OpenAI 兼容，/v1 结尾）</label>
+      <input type="text" name="api_base" value="{{ api_base }}" placeholder="https://api.deepseek.com/v1"
+             list="preset-list" oninput="syncPreset()">
+      <datalist id="preset-list">
+        {% for name, p in presets.items() %}
+        <option value="{{ p.base }}">{{ name }} · 默认 {{ p.model }}</option>
+        {% endfor %}
+      </datalist>
+      <label>API Key</label>
+      <input type="password" name="api_key" value="{{ api_key }}" placeholder="sk-...">
+      <label>模型名</label>
+      <input type="text" name="api_model" value="{{ api_model }}" placeholder="deepseek-chat / gpt-4o-mini ...">
+    </div>
+    <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+      <button class="btn small" type="submit">保存</button>
+      <button class="btn ghost small" type="button" onclick="testAI()">🔍 测试连接</button>
+      <span style="font-size:12px;color:var(--sub)">先点「保存」再测试才生效</span>
+    </div>
+    <div id="ai-status" style="margin-top:12px"></div>
+  </form>
+</div>
+
+<script>
+function toggleProvider(){
+  var p = document.getElementById('provider').value;
+  document.getElementById('ollama-box').style.display = p==='ollama' ? '' : 'none';
+  document.getElementById('api-box').style.display = p==='api' ? '' : 'none';
+}
+function syncPreset(){
+  var map = {{ presets|tojson }};
+  var v = document.querySelector('input[name=api_base]').value;
+  for (var k in map){ if (map[k].base === v.replace(/\/$/,'')){
+    var m = document.querySelector('input[name=api_model]');
+    if (!m.value) m.value = map[k].model;
+  }}
+}
+toggleProvider();
+
+function testAI(){
+  var box = document.getElementById('ai-status');
+  box.innerHTML = '<span style="color:var(--sub);font-size:13px">检测中…</span>';
+  fetch('/api/ai_status').then(function(r){return r.json();}).then(function(d){
+    var h = '';
+    if (d.ollama.ok){
+      h += '<div style="margin-bottom:8px"><span class="badge mint">✅ Ollama 已连接</span> ';
+      if (d.ollama.models.length){
+        h += '<span style="font-size:13px;color:var(--sub)">已下载的模型（点击选用）：</span></div>';
+        h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">';
+        d.ollama.models.forEach(function(m){
+          h += '<button type="button" class="badge score" style="cursor:pointer;border:0" '+
+               'onclick="pickModel(\''+m+'\')">'+m+'</button>';
+        });
+        h += '</div>';
+      } else {
+        h += '<span style="font-size:13px;color:#b98a3a">但还没有下载任何模型！在终端运行：ollama pull qwen2.5:7b</span></div>';
+      }
+    } else {
+      h += '<div style="margin-bottom:8px"><span class="badge err">❌ Ollama 未连接</span> '+
+           '<span style="font-size:13px;color:var(--sub)">'+ (d.ollama.error||'') +'</span></div>';
+    }
+    if (d.api.ok){
+      h += '<div><span class="badge mint">✅ API 测试成功</span>'+
+           (d.api.model?' <span style="font-size:13px;color:var(--sub)">（'+d.api.model+'）</span>':'')+'</div>';
+    } else {
+      h += '<div><span class="badge opt">API：'+d.api.error+'</span></div>';
+    }
+    box.innerHTML = h;
+  }).catch(function(){ box.innerHTML = '<span class="badge err">检测失败：错题集服务没有响应</span>'; });
+}
+function pickModel(m){
+  var i = document.querySelector('input[name=model]');
+  i.value = m;
+  document.querySelector('select[name=provider]').value = 'ollama';
+  toggleProvider();
+}
+</script>
+{% endblock %}
