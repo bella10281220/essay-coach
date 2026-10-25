@@ -5,7 +5,7 @@
 """
 import difflib
 
-VERSION = "2.5"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "2.6"   # 页脚显示，用于确认正在运行的是新版本
 import html as html_mod
 import json
 import os
@@ -335,7 +335,7 @@ def index():
         api_key=get_setting("api_key", ""),
         api_model=get_setting("api_model", ""),
         presets=API_PRESETS,
-        bookmarklet=make_bookmarklet("new"),
+        bookmarklet=make_bookmarklet("new"), bookmarklet_paste=make_bookmarklet_paste(),
         bookmarklet_import=make_bookmarklet("imported"),
     )
 
@@ -778,7 +778,7 @@ def import_page():
         mode = request.form.get("mode", "imported")
         if not content:
             return render_template("import.html", error="请先粘贴内容", mode=mode,
-                                   bookmarklet=make_bookmarklet("new"), bookmarklet_import=make_bookmarklet("imported"))
+                                   bookmarklet=make_bookmarklet("new"), bookmarklet_import=make_bookmarklet("imported"), bookmarklet_paste=make_bookmarklet_paste())
         title = request.form.get("title", "").strip()[:60] or \
             f"{time.strftime('%Y-%m-%d')} {'网页导入·已批改' if mode=='imported' else '新作文'}"
         cur = db().execute(
@@ -797,7 +797,7 @@ def import_page():
             return redirect(url_for("essay", essay_id=essay_id))
         return redirect(url_for("essay", essay_id=essay_id))
     return render_template("import.html", error=None, mode="imported",
-                           bookmarklet=make_bookmarklet("new"), bookmarklet_import=make_bookmarklet("imported"))
+                           bookmarklet=make_bookmarklet("new"), bookmarklet_import=make_bookmarklet("imported"), bookmarklet_paste=make_bookmarklet_paste())
 
 DEMO_SAY = {
     "options": [
@@ -912,6 +912,12 @@ def _u(s):
         else:
             out.append("\\u%04x" % ord(ch))
     return "".join(out)
+
+
+def make_bookmarklet_paste():
+    """最简单可靠的版本：一键打开导入页，把内容粘贴进去（绝不抓错）"""
+    return ("javascript:(function(){window.open("
+            "'http://127.0.0.1:5000/import','_blank');})()")
 
 
 def make_bookmarklet(mode="new"):
