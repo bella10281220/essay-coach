@@ -69,5 +69,11 @@ function setMode(m){
   <textarea readonly style="min-height:64px;font-size:11px;font-family:monospace" onclick="this.select()">{{ bookmarklet_import|safe }}</textarea>
   <p style="font-size:13px;color:var(--sub);margin:10px 0 6px">📋 「存为待批改」版（新写的英文想让 AI 批改时用）：</p>
   <textarea readonly style="min-height:64px;font-size:11px;font-family:monospace" onclick="this.select()">{{ bookmarklet|safe }}</textarea>
+
+  <div style="background:var(--green-bg);border:1px solid #bfe6d2;border-radius:10px;padding:12px 14px;font-size:14px;margin-top:16px">
+    <b>🟢 100% 不会抓错的保底版（推荐也装一个）：</b>再建一个书签叫「打开粘贴箱」，网址栏粘贴下面这行——
+    在 ChatGPT / Gemini 页面点它，会直接打开本页（导入框），把对话 Ctrl+C / Ctrl+V 进来点按钮即可。
+    <textarea readonly style="min-height:44px;font-size:11px;font-family:monospace;margin-top:8px" onclick="this.select()">{{ bookmarklet_paste }}</textarea>
+  </div>
 </div>
 {% endblock %}
