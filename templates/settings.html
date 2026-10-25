@@ -101,12 +101,22 @@ function doUpdate(){
   btn.disabled = true; btn.textContent = '⏳ 正在下载最新版…';
   box.innerHTML = '<span style="font-size:13px;color:var(--sub)">正在从 GitHub 下载并覆盖代码（你的文章数据不会动），大约需要 10~30 秒…</span>';
   fetch('/api/update', {method:'POST'}).then(function(r){return r.json();}).then(function(d){
-    btn.disabled = false; btn.textContent = '🔄 一键更新到最新版';
     if (d.ok){
-      box.innerHTML = '<div class="demo-note" style="background:var(--green-bg);color:var(--green-d);border-color:#bfe0cd">'+d.message+'<br>当前页脚还显示旧版本号是正常的，重启后就是新版本。</div>';
-    } else {
-      box.innerHTML = '<div class="demo-note" style="background:#fdeeee;color:#d97b7b">'+d.error+'（检查网络，或把 token 放进项目文件夹的 gh-token.txt）</div>';
+      box.innerHTML = '<div class="demo-note" style="background:var(--green-bg);color:var(--green-d);border-color:#bfe0cd">'+d.message+'</div>';
+      // 自动等待服务重启完成，然后刷新页面
+      var tries = 0;
+      var poll = setInterval(function(){
+        tries++;
+        fetch('/', {cache:'no-store'}).then(function(){
+          clearInterval(poll);
+          box.innerHTML = '<div class="demo-note" style="background:var(--green-bg);color:var(--green-d);border-color:#bfe0cd">✅ 重启完成！正在刷新页面…</div>';
+          setTimeout(function(){ location.reload(); }, 1200);
+        }).catch(function(){ if (tries > 40) { clearInterval(poll); } });
+      }, 2000);
+      return;
     }
+    btn.disabled = false; btn.textContent = '🔄 一键更新到最新版';
+    box.innerHTML = '<div class="demo-note" style="background:#fdeeee;color:#d97b7b">'+d.error+'（检查网络，或把 token 放进项目文件夹的 gh-token.txt）</div>';
   }).catch(function(e){
     btn.disabled = false; btn.textContent = '🔄 一键更新到最新版';
     box.innerHTML = '<div class="demo-note" style="background:#fdeeee;color:#d97b7b">更新请求失败：服务没有响应。请确认拾贝集正在运行。</div>';
