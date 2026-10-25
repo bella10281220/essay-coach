@@ -40,9 +40,11 @@
     <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
       <button class="btn small" type="submit">保存</button>
       <button class="btn ghost small" type="button" onclick="testAI()">🔍 测试连接</button>
+      <button class="btn ghost small" type="button" onclick="doUpdate()" id="upd-btn">🔄 一键更新到最新版</button>
       <span style="font-size:12px;color:var(--sub)">先点「保存」再测试才生效</span>
     </div>
     <div id="ai-status" style="margin-top:12px"></div>
+    <div id="upd-status" style="margin-top:8px"></div>
   </form>
 </div>
 
@@ -92,6 +94,23 @@ function testAI(){
     }
     box.innerHTML = h;
   }).catch(function(){ box.innerHTML = '<span class="badge err">检测失败：错题集服务没有响应</span>'; });
+}
+function doUpdate(){
+  var btn = document.getElementById('upd-btn');
+  var box = document.getElementById('upd-status');
+  btn.disabled = true; btn.textContent = '⏳ 正在下载最新版…';
+  box.innerHTML = '<span style="font-size:13px;color:var(--sub)">正在从 GitHub 下载并覆盖代码（你的文章数据不会动），大约需要 10~30 秒…</span>';
+  fetch('/api/update', {method:'POST'}).then(function(r){return r.json();}).then(function(d){
+    btn.disabled = false; btn.textContent = '🔄 一键更新到最新版';
+    if (d.ok){
+      box.innerHTML = '<div class="demo-note" style="background:var(--green-bg);color:var(--green-d);border-color:#bfe0cd">'+d.message+'<br>当前页脚还显示旧版本号是正常的，重启后就是新版本。</div>';
+    } else {
+      box.innerHTML = '<div class="demo-note" style="background:#fdeeee;color:#d97b7b">'+d.error+'（检查网络，或把 token 放进项目文件夹的 gh-token.txt）</div>';
+    }
+  }).catch(function(e){
+    btn.disabled = false; btn.textContent = '🔄 一键更新到最新版';
+    box.innerHTML = '<div class="demo-note" style="background:#fdeeee;color:#d97b7b">更新请求失败：服务没有响应。请确认拾贝集正在运行。</div>';
+  });
 }
 function pickModel(m){
   var i = document.querySelector('input[name=model]');
