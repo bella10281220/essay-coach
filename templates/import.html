@@ -58,10 +58,12 @@ function setMode(m){
     如果弹出<b>「请先在网页中选中要收藏的文字」</b>，说明书签已装好。
     如果什么都没弹出来，就是第 5 步的 <code>javascript:</code> 前缀没补上。
   </div>
-  <p style="font-size:14px;margin-bottom:8px">✅ 以后使用：在 ChatGPT / Gemini 页面<b>用鼠标把批改内容拖蓝（选中）</b> → 点书签栏的「导入到错题集」→ 弹出 ✅ 后，文章已<b>自动整理并存入书架</b>，连 Ctrl+C 都不用按。</p>
+  <p style="font-size:14px;margin-bottom:8px">✅ 以后使用：在 ChatGPT / Gemini 页面点书签栏的「导入到错题集」即可——
+    <b>什么都不选 = 自动抓取整个对话页面</b>；想只收某一段，就先用鼠标拖蓝选中（80 字以上）再点书签。
+    弹出 ✅ 后，文章已<b>自动整理并存入书架</b>。</p>
   <p style="font-size:13px;color:var(--sub);margin-bottom:6px">📋 「导入已批改对话」版（日常主要用这个，自动整理入书架）：</p>
-  <textarea readonly style="min-height:64px;font-size:11px;font-family:monospace" onclick="this.select()">{{ bookmarklet_import }}</textarea>
+  <textarea readonly style="min-height:64px;font-size:11px;font-family:monospace" onclick="this.select()">{{ bookmarklet_import|safe }}</textarea>
   <p style="font-size:13px;color:var(--sub);margin:10px 0 6px">📋 「存为待批改」版（新写的英文想让 AI 批改时用）：</p>
-  <textarea readonly style="min-height:64px;font-size:11px;font-family:monospace" onclick="this.select()">{{ bookmarklet }}</textarea>
+  <textarea readonly style="min-height:64px;font-size:11px;font-family:monospace" onclick="this.select()">{{ bookmarklet|safe }}</textarea>
 </div>
 {% endblock %}
