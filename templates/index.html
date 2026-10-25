@@ -1,162 +1,111 @@
 {% extends "base.html" %}
 {% block body %}
 
-<div class="cover-card" onclick="location.href='{{ url_for('write_page') }}'" style="cursor:pointer">
-  <div class="cover-frame">
-    <p class="cover-eng">S H I B E I &nbsp; J I</p>
-    <h1 class="cover-title">拾贝集</h1>
-    <p class="cover-line">———— ✦ ————</p>
-    <p class="cover-sub">在写作的海滩上，拾起每一篇好文章</p>
-    <p class="cover-stats">已藏 {{ total }} 篇 · 回顾报告 {{ reviews_count }} 份 · 每 {{ interval }} 篇一回顾</p>
-    <p class="cover-open">翻开 →</p>
+<div class="book-stage">
+  <div class="book" id="book">
+    <!-- 封面（正面） -->
+    <div class="face front">
+      <div class="cover-frame">
+        <p class="cover-eng">S H I B E I &nbsp; J I</p>
+        <h1 class="cover-title">拾贝集</h1>
+        <p class="cover-line">———— ✦ ————</p>
+        <p class="cover-sub">在写作的海滩上，拾起每一篇好文章</p>
+        <p class="cover-stats">已藏 {{ total }} 篇 · 回顾报告 {{ reviews_count }} 份 · 每 {{ interval }} 篇一回顾</p>
+        <p class="cover-open" onclick="openBook(event)">翻开 →</p>
+      </div>
+    </div>
+    <!-- 翻开后（里面） -->
+    <div class="face back">
+      <div class="back-inner">
+        <p class="back-head">目 · 录</p>
+        <div class="toc">
+          <a class="entry" href="{{ url_for('write_page') }}">
+            <span class="e-icon">✏️</span>
+            <span class="e-body"><b>写作文 / 改作文</b><i>写今天的文章，AI 当面批改</i></span>
+          </a>
+          <a class="entry" href="{{ url_for('say') }}">
+            <span class="e-icon">💬</span>
+            <span class="e-body"><b>我想说</b><i>打中文，学地道的英文说法</i></span>
+          </a>
+          <a class="entry" href="{{ url_for('shelf') }}">
+            <span class="e-icon">📚</span>
+            <span class="e-body"><b>书架</b><i>改好的文章像书一样摆着</i></span>
+          </a>
+          <a class="entry" href="{{ url_for('import_page') }}">
+            <span class="e-icon">🔖</span>
+            <span class="e-body"><b>书签导入</b><i>一键收进 ChatGPT / Gemini 的批改</i></span>
+          </a>
+          <a class="entry" href="{{ url_for('reviews') }}">
+            <span class="e-icon">🌱</span>
+            <span class="e-body"><b>进步回顾</b><i>每 {{ interval }} 篇一份进步报告</i></span>
+          </a>
+        </div>
+        <div class="back-foot">
+          <a href="{{ url_for('settings') }}">⚙️ AI 设置</a>
+          <span>·</span>
+          <a href="javascript:void(0)" onclick="closeBook(event)">← 合上封面</a>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
-
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
-  <a class="card entry" href="{{ url_for('write_page') }}" style="border-top:4px solid var(--green)">
-    <div style="font-size:30px">✏️</div>
-    <h2 style="margin:8px 0 4px">写作文 / 改作文</h2>
-    <p style="font-size:13px;color:var(--sub)">写今天的文章，或翻开书架重读改好的每一篇</p>
-  </a>
-  <a class="card entry" href="{{ url_for('say') }}" style="border-top:4px solid var(--sky)">
-    <div style="font-size:30px">💬</div>
-    <h2 style="margin:8px 0 4px">我想说</h2>
-    <p style="font-size:13px;color:var(--sub)">打中文，AI 教你地道的英文说法，自动攒进积累本</p>
-  </a>
-  <a class="card entry" href="{{ url_for('shelf') }}" style="border-top:4px solid var(--sand)">
-    <div style="font-size:30px">📚</div>
-    <h2 style="margin:8px 0 4px">书架</h2>
-    <p style="font-size:13px;color:var(--sub)">改好的文章像书一样摆着，随时点开重读</p>
-  </a>
-  <a class="card entry" href="{{ url_for('import_page') }}" style="border-top:4px solid var(--sand)">
-    <div style="font-size:30px">🔖</div>
-    <h2 style="margin:8px 0 4px">书签导入</h2>
-    <p style="font-size:13px;color:var(--sub)">把 ChatGPT / Gemini 里改好的对话一键收进错题集</p>
-  </a>
-  <a class="card entry" href="{{ url_for('reviews') }}" style="border-top:4px solid var(--lav)">
-    <div style="font-size:30px">🌱</div>
-    <h2 style="margin:8px 0 4px">进步回顾</h2>
-    <p style="font-size:13px;color:var(--sub)">AI 回顾最近 {{ interval }} 篇，找出细小的进步和顽固错误</p>
-  </a>
-</div>
-
-<div class="card">
-  <h2>⚙️ 设置 <small>模型来源 / API</small></h2>
-  {% if request.args.get('saved') %}
-  <div class="demo-note" style="background:var(--green-bg);color:var(--green-d);border-color:#bfe0cd">
-    ✅ 设置已保存！记得点下面的「🔍 测试连接」确认 AI 能连上。
-  </div>
-  {% endif %}
-  <form action="{{ url_for('settings') }}" method="post">
-    <label>模型来源</label>
-    <select name="provider" id="provider" onchange="toggleProvider()" style="width:auto;border-radius:10px">
-      <option value="ollama" {% if provider=='ollama' %}selected{% endif %}>本机 Ollama（免费）</option>
-      <option value="api" {% if provider=='api' %}selected{% endif %}>在线 API（GPT / DeepSeek 等）</option>
-    </select>
-    <div id="ollama-box">
-      <label>Ollama 模型（先 <code>ollama pull 模型名</code>）</label>
-      <input type="text" name="model" value="{{ model }}" placeholder="qwen2.5:7b">
-    </div>
-    <div id="api-box">
-      <label>API 地址（OpenAI 兼容，/v1 结尾）</label>
-      <input type="text" name="api_base" value="{{ api_base }}" placeholder="https://api.deepseek.com/v1"
-             list="preset-list" oninput="syncPreset()">
-      <datalist id="preset-list">
-        {% for name, p in presets.items() %}
-        <option value="{{ p.base }}">{{ name }} · 默认 {{ p.model }}</option>
-        {% endfor %}
-      </datalist>
-      <label>API Key</label>
-      <input type="password" name="api_key" value="{{ api_key }}" placeholder="sk-...">
-      <label>模型名</label>
-      <input type="text" name="api_model" value="{{ api_model }}" placeholder="deepseek-chat / gpt-4o-mini ...">
-    </div>
-    <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
-      <button class="btn small" type="submit">保存</button>
-      <button class="btn ghost small" type="button" onclick="testAI()">🔍 测试连接</button>
-      <span style="font-size:12px;color:var(--sub)">先点「保存」再测试才生效</span>
-    </div>
-    <div id="ai-status" style="margin-top:12px"></div>
-  </form>
-</div>
+<p class="hint-line">点击封面上的「翻开」进入 · 顶部导航可直达各功能</p>
 
 <style>
-.cover-card{max-width:420px;margin:0 auto 26px}
-.cover-frame{background:linear-gradient(170deg,#fdfbf5,#f2f8f4);border:1px solid #d8c9a8;
-  border-radius:6px 18px 18px 6px;padding:44px 30px 34px;text-align:center;position:relative;
-  box-shadow:6px 8px 24px rgba(90,70,40,.18), inset 0 0 0 1px #fff;
-  transition:.25s}
-.cover-frame:hover{transform:translateY(-4px);box-shadow:8px 12px 30px rgba(90,70,40,.22)}
-.cover-frame::before{content:"";position:absolute;left:12px;top:10px;bottom:10px;width:1px;
-  background:linear-gradient(#d8c9a8,transparent 85%)}
-.cover-frame::after{content:"";position:absolute;right:12px;top:10px;bottom:10px;width:1px;
-  background:linear-gradient(transparent 15%,#d8c9a8)}
-.cover-eng{font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:14px}
-.cover-title{font-size:52px;font-weight:400;letter-spacing:14px;text-indent:14px;color:var(--ink);
-  font-family:Georgia,"Songti SC","Noto Serif SC",serif}
-.cover-line{color:#c9b98a;margin:10px 0}
-.cover-sub{font-size:14px;color:var(--sub)}
-.cover-stats{font-size:12px;color:var(--sub);margin-top:22px;padding-top:16px;
-  border-top:1px dashed #e2d5b8}
-.cover-open{margin-top:14px;font-size:13px;color:var(--green-d);letter-spacing:2px}
-.entry{transition:.18s}
-.entry:hover{transform:translateY(-3px);box-shadow:0 8px 22px rgba(92,184,148,.14)}
-</style>
-<script>
-function toggleProvider(){
-  var p = document.getElementById('provider').value;
-  document.getElementById('ollama-box').style.display = p==='ollama' ? '' : 'none';
-  document.getElementById('api-box').style.display = p==='api' ? '' : 'none';
-}
-function syncPreset(){
-  var map = {{ presets|tojson }};
-  var v = document.querySelector('input[name=api_base]').value;
-  for (var k in map){ if (map[k].base === v.replace(/\/$/,'')){
-    var m = document.querySelector('input[name=api_model]');
-    if (!m.value) m.value = map[k].model;
-  }}
-}
-toggleProvider();
+.book-stage{display:flex;justify-content:center;padding:26px 0 10px;perspective:1800px}
+.book{position:relative;width:min(620px,94vw);min-height:610px;transform-style:preserve-3d;
+  transition:transform .9s cubic-bezier(.35,.1,.2,1)}
+.book.open{transform:rotateY(-180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:10px 24px 24px 10px}
+.front{z-index:2}
+.back{transform:rotateY(180deg);background:linear-gradient(170deg,#fdfbf5,#f4faf6);
+  border:1px solid #d8c9a8;box-shadow:inset 0 0 0 1px #fff;overflow-y:auto}
 
-function testAI(){
-  var box = document.getElementById('ai-status');
-  box.innerHTML = '<span style="color:var(--sub);font-size:13px">检测中…</span>';
-  fetch('/api/ai_status').then(function(r){return r.json();}).then(function(d){
-    var h = '';
-    // Ollama
-    if (d.ollama.ok){
-      h += '<div style="margin-bottom:8px"><span class="badge mint">✅ Ollama 已连接</span> ';
-      if (d.ollama.models.length){
-        h += '<span style="font-size:13px;color:var(--sub)">已下载的模型（点击选用）：</span></div>';
-        h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">';
-        d.ollama.models.forEach(function(m){
-          h += '<button type="button" class="badge score" style="cursor:pointer;border:0" '+
-               'onclick="pickModel(\''+m+'\')">'+m+'</button>';
-        });
-        h += '</div>';
-      } else {
-        h += '<span style="font-size:13px;color:#b98a3a">但还没有下载任何模型！在终端运行：ollama pull qwen2.5:7b</span></div>';
-      }
-    } else {
-      h += '<div style="margin-bottom:8px"><span class="badge err">❌ Ollama 未连接</span> '+
-           '<span style="font-size:13px;color:var(--sub)">'+ (d.ollama.error||'') +'</span></div>';
-    }
-    // API
-    if (d.api.ok){
-      h += '<div><span class="badge mint">✅ API 测试成功</span>'+
-           (d.api.model?' <span style="font-size:13px;color:var(--sub)">（'+d.api.model+'）</span>':'')+'</div>';
-    } else {
-      h += '<div><span class="badge opt">API：'+d.api.error+'</span></div>';
-    }
-    box.innerHTML = h;
-  }).catch(function(){ box.innerHTML = '<span class="badge err">检测失败：错题集服务没有响应</span>'; });
+/* 封面 */
+.cover-frame{height:100%;background:linear-gradient(170deg,#fdfbf5,#f2f8f4);border:1px solid #d8c9a8;
+  border-radius:10px 24px 24px 10px;padding:52px 30px 40px;text-align:center;position:relative;
+  box-shadow:8px 12px 30px rgba(90,70,40,.2), inset 0 0 0 1px #fff;cursor:pointer;
+  display:flex;flex-direction:column;justify-content:center}
+.cover-frame::before{content:"";position:absolute;left:14px;top:14px;bottom:14px;width:1px;
+  background:linear-gradient(#d8c9a8,transparent 85%)}
+.cover-frame::after{content:"";position:absolute;right:14px;top:14px;bottom:14px;width:1px;
+  background:linear-gradient(transparent 15%,#d8c9a8)}
+.cover-eng{font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:16px}
+.cover-title{font-size:56px;font-weight:400;letter-spacing:14px;text-indent:14px;color:var(--ink);
+  font-family:Georgia,"Songti SC","Noto Serif SC",serif}
+.cover-line{color:#c9b98a;margin:12px 0}
+.cover-sub{font-size:14px;color:var(--sub)}
+.cover-stats{font-size:12px;color:var(--sub);margin-top:24px;padding-top:16px;
+  border-top:1px dashed #e2d5b8}
+.cover-open{margin-top:16px;font-size:14px;color:var(--green-d);letter-spacing:2px}
+.cover-frame:hover .cover-open{transform:translateX(4px)}
+.cover-open{transition:.2s}
+
+/* 翻开后 */
+.back-inner{padding:30px 28px 22px;height:100%;display:flex;flex-direction:column}
+.back-head{text-align:center;font-size:18px;letter-spacing:10px;text-indent:10px;
+  color:var(--ink);font-family:Georgia,"Songti SC","Noto Serif SC",serif;margin-bottom:4px}
+.back-head::after{content:"";display:block;width:120px;height:1px;background:#c9b98a;margin:12px auto 0}
+.toc{display:flex;flex-direction:column;gap:10px;margin-top:14px;flex:1;justify-content:center}
+.entry{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--line);
+  border-radius:14px;padding:13px 18px;transition:.18s;text-decoration:none}
+.entry:hover{transform:translateX(6px);border-color:#cfe8db;box-shadow:0 4px 14px rgba(92,184,148,.12)}
+.e-icon{font-size:24px}
+.e-body b{display:block;font-size:15px;color:var(--ink);font-weight:600}
+.e-body i{font-style:normal;font-size:12.5px;color:var(--sub)}
+.back-foot{display:flex;justify-content:center;gap:12px;margin-top:16px;font-size:13px;color:var(--sub)}
+.back-foot a{color:var(--green-d)}
+.hint-line{text-align:center;font-size:12px;color:var(--sub);margin-top:10px}
+@media (max-width:520px){
+  .book{min-height:430px}
+  .cover-title{font-size:44px}
 }
-function pickModel(m){
-  var i = document.querySelector('input[name=model]');
-  i.value = m;
-  document.querySelector('select[name=provider]').value = 'ollama';
-  toggleProvider();
-}
+</style>
+
+<script>
+function openBook(e){ e && e.stopPropagation(); document.getElementById('book').classList.add('open'); }
+function closeBook(e){ e && e.stopPropagation(); document.getElementById('book').classList.remove('open'); }
+if (location.hash === '#open') openBook();
 </script>
 {% endblock %}
