@@ -903,6 +903,13 @@ def api_update():
         r = requests.get(
             "https://api.github.com/repos/bella10281220/essay-coach/zipball/main",
             headers=headers, timeout=90)
+        if r.status_code == 404:
+            return jsonify({"ok": False, "error":
+                "GitHub 返回 404：仓库访问被拒。请确认项目文件夹里有 gh-token.txt"
+                "（内容为你的 GitHub token），或者把仓库改成 Public。"}), 502
+        if r.status_code == 403:
+            return jsonify({"ok": False, "error":
+                "GitHub 返回 403：token 失效或请求太频繁，请换一个新 token。"}), 502
         r.raise_for_status()
         zf = zipfile.ZipFile(io_mod.BytesIO(r.content))
         root = zf.namelist()[0].split("/")[0]
