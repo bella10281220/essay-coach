@@ -5,7 +5,7 @@
 """
 import difflib
 
-VERSION = "2.7"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "2.8"   # 页脚显示，用于确认正在运行的是新版本
 import html as html_mod
 import json
 import os
@@ -669,7 +669,9 @@ PARSE_PROMPT = """你是一位英语写作老师的数据整理助手。下面�
 5. summary：用中文写一句总体评价（概括这段批改的核心结论）。score 给出合理的 1-10 分估计；error_count / optimize_count 按整理结果统计。
 6. book_title：给这篇作文起一个简短的书名（4-12 个字，像书架上书的名字，例如「环境污染之我见」「难忘的一次旅行」），根据作文主题起，不要带日期。
 7. wanted_phrases：空数组。
-8. 忽略寒暄、追问、与批改无关的内容。找不到任何批改信息时，sentences 给空数组并在 summary 说明。
+8. 拆分要求：sentences 通常有 5~15 条，**每条只对应一句话的一处修改，绝不允许把整段或整篇塞进一条 sentences**。如果批改原文是"原句中带删除线改词"的行内形式（如 I'm work ~~working~~），先还原出学生的完整原句，再把每处修改单独拆成一条。
+9. vocab 除了词汇建议外，**还必须把结尾的"最值得带走的表达 / 好句"清单也收进来**：original 填英文表达本身，suggestion 填中文含义，note 填例句和使用说明。
+10. 忽略寒暄、追问、与批改无关的内容。找不到任何批改信息时，sentences 给空数组并在 summary 说明。
 
 只输出 JSON：
 {"summary": "...", "score": 0, "error_count": 0, "optimize_count": 0, "book_title": "...",
