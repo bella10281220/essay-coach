@@ -5,7 +5,7 @@
 """
 import difflib
 
-VERSION = "2.4"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "2.5"   # 页脚显示，用于确认正在运行的是新版本
 import html as html_mod
 import json
 import os
@@ -665,11 +665,12 @@ PARSE_PROMPT = """你是一位英语写作老师的数据整理助手。下面�
 2. vocab：提取词汇/表达建议（有就填，没有给空数组）。
 3. version_current / version_advanced：如果原文中有整篇改写或两个版本就填入；只有一个版本就 version_current 填它、version_advanced 留空字符串；都没有则都留空。
 4. summary：用中文写一句总体评价（概括这段批改的核心结论）。score 给出合理的 1-10 分估计；error_count / optimize_count 按整理结果统计。
-5. wanted_phrases：空数组。
-6. 忽略寒暄、追问、与批改无关的内容。找不到任何批改信息时，sentences 给空数组并在 summary 说明。
+5. book_title：给这篇作文起一个简短的书名（4-12 个字，像书架上书的名字，例如「环境污染之我见」「难忘的一次旅行」），根据作文主题起，不要带日期。
+6. wanted_phrases：空数组。
+7. 忽略寒暄、追问、与批改无关的内容。找不到任何批改信息时，sentences 给空数组并在 summary 说明。
 
 只输出 JSON：
-{"summary": "...", "score": 0, "error_count": 0, "optimize_count": 0,
+{"summary": "...", "score": 0, "error_count": 0, "optimize_count": 0, "book_title": "...",
  "sentences": [{"original": "...", "type": "error|optimize|complex_kept|good", "revised": "...", "note": "..."}],
  "vocab": [], "wanted_phrases": [],
  "version_current": "...", "version_advanced": "..."}
@@ -700,6 +701,11 @@ def parse_import(essay_id):
         "UPDATE essays SET correction=?, corrected=1 WHERE id=?",
         (json.dumps(data, ensure_ascii=False), essay_id),
     )
+    # 自动起书名
+    bt = (data.get("book_title") or "").strip()
+    if bt:
+        db().execute("UPDATE essays SET title=? WHERE id=?",
+                     (bt.strip().strip('"“”')[:30], essay_id))
     db().commit()
     return redirect(url_for("essay", essay_id=essay_id))
 
@@ -849,6 +855,35 @@ def delete_phrase():
     return redirect(url_for("say"))
 
 
+@app.route("/phrases")
+def phrase_book():
+    """短语本：自动收集所有已批改文章里的词汇与固定短语"""
+    rows = db().execute(
+        "SELECT id, title, correction FROM essays WHERE corrected=1 ORDER BY id DESC"
+    ).fetchall()
+    items, seen = [], set()
+    for e in rows:
+        if not e["correction"]:
+            continue
+        try:
+            c = json.loads(e["correction"])
+        except Exception:  # noqa: BLE001
+            continue
+        for v in c.get("vocab", []):
+            orig = (v.get("original") or "").strip()
+            sug = (v.get("suggestion") or "").strip()
+            if not orig or not sug:
+                continue
+            key = (orig.lower(), sug.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append({"essay_id": e["id"], "essay_title": e["title"],
+                          "original": orig, "suggestion": sug,
+                          "note": (v.get("note") or "").strip()})
+    return render_template("phrases.html", items=items)
+
+
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
     if request.method == "GET":
@@ -880,7 +915,7 @@ def _u(s):
 
 
 def make_bookmarklet(mode="new"):
-    """生成抓取书签的 JS 代码：带全程浮动提示条，没选字时自动抓整页"""
+    """生成抓取书签的 JS 代码：带全程浮动提示条，直接抓对话主区域（不依赖选中）"""
     tpl = r"""
 (function(){
 function toast(html,color,sticky){var d=document.createElement('div');
@@ -888,12 +923,20 @@ d.style.cssText='position:fixed;top:16px;left:50%;transform:translateX(-50%);z-i
 d.innerHTML=html;document.body.appendChild(d);
 if(!sticky){setTimeout(function(){d.remove();},9000);}
 return d;}
-var s=(window.getSelection?window.getSelection().toString():'');
-var whole=false;
-if(!s||s.length<80){s=(document.body?document.body.innerText:'').replace(/\n{3,}/g,'\n\n').trim().slice(0,12000);whole=true;}
-if(!s){toast('__ZH_NOTEXT__','#b98a3a');return;}
-var tip=toast('__ZH_WAIT__'+(whole?'__ZH_PAGE__':'__ZH_SEL__')+'('+s.length+' __ZH_CHARS__)&hellip;','#555',true);
-fetch('http://127.0.0.1:5000/api/capture',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:s,title:document.title,mode:'__MODE__'})})
+var cands=[];
+try{cands=Array.prototype.slice.call(document.querySelectorAll('main,article,[data-testid^="conversation"],div[class*="conversation"],div[class*="chat"]'));}catch(e){}
+cands.push(document.body);
+var best='',area='';
+for(var i=0;i<cands.length;i++){
+ try{
+  var t=(cands[i].innerText||'').replace(/\n{3,}/g,'\n\n').trim();
+  if(t.length>best.length){best=t;area=(cands[i].tagName||'').toLowerCase();}
+ }catch(e){}
+}
+best=(best||'').slice(0,12000);
+if(best.length<150){toast('__ZH_NOTEXT__','#b98a3a',true);return;}
+var tip=toast('__ZH_WAIT__'+best.length+' __ZH_CHARS__&hellip;','#555',true);
+fetch('http://127.0.0.1:5000/api/capture',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:best,title:document.title,mode:'__MODE__'})})
 .then(function(r){return r.json()})
 .then(function(d){
 if(!d.ok){tip.style.background='#d97b7b';tip.innerHTML='__ZH_FAIL__'+(d.error||'?')+'__ZH_CLOSE__';tip.onclick=function(){tip.remove()};return;}
@@ -905,11 +948,9 @@ else{tip.innerHTML='__ZH_OK3__'+link;}})
 })()
 """
     zh = {
-        "__ZH_NOTEXT__": _u("这个页面没有可收藏的文字"),
-        "__ZH_WAIT__": _u("⏳ 正在收藏"),
-        "__ZH_PAGE__": _u("整页"),
-        "__ZH_SEL__": _u("所选内容"),
-        "__ZH_CHARS__": _u("字"),
+        "__ZH_NOTEXT__": _u("这个页面几乎没有文字内容，请在有对话的页面使用书签"),
+        "__ZH_WAIT__": _u("⏳ 正在收藏本页内容（"),
+        "__ZH_CHARS__": _u("字）"),
         "__ZH_FAIL__": _u("❌ 收藏失败："),
         "__ZH_CLOSE__": _u("（点我关闭）"),
         "__ZH_GO__": _u("去看看 →"),
@@ -942,6 +983,11 @@ def try_auto_parse(essay_id, content):
         "UPDATE essays SET correction=?, corrected=1 WHERE id=?",
         (json.dumps(data, ensure_ascii=False), essay_id),
     )
+    # 自动起书名（和普通批改一致）
+    bt = (data.get("book_title") or "").strip()
+    if bt:
+        db().execute("UPDATE essays SET title=? WHERE id=?",
+                     (bt.strip().strip('"“”')[:30], essay_id))
     db().commit()
     return True
 
