@@ -106,6 +106,7 @@ footer{color:var(--sub);font-size:12px;text-align:center;margin-top:34px}
     <a href="{{ url_for('shelf') }}" class="{{ 'active' if request.path=='/shelf' }}">📚 书架</a>
     <a href="{{ url_for('import_page') }}" class="{{ 'active' if request.path=='/import' }}">🔖 书签导入</a>
     <a href="{{ url_for('reviews') }}" class="{{ 'active' if request.path=='/reviews' }}">🌱 进步回顾</a>
+    <a href="{{ url_for('phrase_book') }}" class="{{ 'active' if request.path=='/phrases' }}">🧺 短语本</a>
     <a href="{{ url_for('settings') }}" class="{{ 'active' if request.path=='/settings' }}">⚙️ 设置</a>
   </nav>
 </div>
