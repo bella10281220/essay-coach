@@ -6,7 +6,7 @@
 import difflib
 import threading
 
-VERSION = "3.0"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.1"   # 页脚显示，用于确认正在运行的是新版本
 import html as html_mod
 import json
 import os
@@ -382,6 +382,51 @@ def ai_status():
     else:
         out["api"]["error"] = "尚未配置（填好 API 地址和 Key 后才能测试）"
     return jsonify(out)
+
+
+PHRASE_PATTERNS = [
+    # "take up 是一个短语动词" / "pay attention to 表示……"
+    re.compile(r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,4})\s*"
+               r"(?:是|是一个|表示|意思是|指的是|为|：|:)"),
+    # "句型：某件事 + takes + 时间"
+    re.compile(r"句型\s*[:：]\s*([^\n]{2,60})"),
+    # "XX 短语 / XX 搭配"
+    re.compile(r"([A-Za-z][A-Za-z'\- ]{2,30})\s*(?:短语|搭配|固定表达|短语动词)"),
+]
+
+def extract_phrases_from_notes(c):
+    """从逐句讲解里挖出短语/句型，返回 vocab 结构"""
+    found, seen = [], set()
+    for sn in c.get("sentences", []):
+        note = sn.get("note") or ""
+        if not note:
+            continue
+        # 按行/句拆开逐条匹配
+        chunks = re.split(r"[\n。；;！!？?]", note)
+        for ch in chunks:
+            ch = ch.strip()
+            if not ch or len(ch) < 4:
+                continue
+            for pat in PHRASE_PATTERNS:
+                for m in pat.finditer(ch):
+                    eng = (m.group(1) or "").strip(" ，,。.")
+                    if not eng or len(eng) < 3:
+                        continue
+                    if not re.search(r"[A-Za-z]", eng):
+                        continue
+                    # 过滤掉纯语法术语
+                    if eng.lower() in ("english", "i", "you", "it", "this", "that"):
+                        continue
+                    key = eng.lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    # 说明取整句中文
+                    zh = ch if re.search(r"[\u4e00-\u9fff]", ch) else ""
+                    found.append({"original": eng[:80],
+                                  "suggestion": zh[:80] or "(见原句讲解)",
+                                  "note": zh[:200]})
+    return found
 
 
 def clean_book_text(c, fallback_content=""):
@@ -927,6 +972,13 @@ def phrase_book():
             continue
         if c.get("vocab"):
             continue
+        # 从讲解里补充短语（take up 是短语动词 / 句型：xxx）
+        for v in extract_phrases_from_notes(c):
+            key = (v["original"].lower(), v["suggestion"].lower()[:60])
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append({"essay_id": e["id"], "essay_title": e["title"], **v})
         for s in c.get("sentences", []):
             o = (s.get("original") or "").strip()
             r = (s.get("revised") or "").strip()
@@ -1123,18 +1175,32 @@ def rule_parse_import(raw):
             typ = "complex_kept"
         # 讲解 = 剩余的说明行
         note = "\n".join(lines[1:])
-        # 行内改词模式："原句 修改后句"（英文连续片段成对出现）
+        # 行内改词：形如 "原句 <新句>" 相邻出现，取最接近的一对
         engs = re.findall(r"[A-Za-z][A-Za-z',\.\!\?\-\s]{6,200}", body)
-        engs = [e.strip(" ,.") for e in engs if len(e.split()) >= 3]
+        engs = [" ".join(e.split()) for e in engs if len(e.split()) >= 3]
+        engs = [e.strip(" ,.") for e in engs]
+        orig, rev = "", ""
         if len(engs) >= 2:
-            # 取最长的一对：长句在前、改句在后
-            pair = max(zip(engs, engs[1:]), key=lambda p: len(p[0]) + len(p[1]))
-            orig, rev = pair[0], pair[1]
-            # 若第二句明显更长/更短，仍保留（就是改写）
+            # 相邻两段里，选"前短后长/前错后对"最像改写的一对
+            best, best_score = None, -1
+            for a, b in zip(engs, engs[1:]):
+                if a.lower() == b.lower():
+                    continue
+                # 相似度越高越像"同一句的改写"
+                import difflib as _dl
+                sim = _dl.SequenceMatcher(None, a.lower(), b.lower()).ratio()
+                score = sim * 100 + len(b.split())
+                if score > best_score:
+                    best_score, best = score, (a, b)
+            if best:
+                orig, rev = best
         elif len(engs) == 1:
-            orig, rev = engs[0], ""
-        else:
+            orig = engs[0]
+        if not orig:
             continue
+        # 改写句与原文几乎一样 → 视为「无需修改」，不重复展示
+        if rev and rev.lower() == orig.lower():
+            rev = ""
         sentences.append({"original": orig[:300], "type": typ,
                           "revised": rev[:300], "note": note[:600]})
 
