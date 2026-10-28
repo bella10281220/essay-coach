@@ -4,13 +4,39 @@
 启动: python3 app.py  → 浏览器打开 http://127.0.0.1:5000
 """
 import difflib
+import sys
 import threading
 
-VERSION = "3.2"   # 页脚显示，用于确认正在运行的是新版本
+# Windows 控制台默认 GBK，任何 print 到 emoji / 生僻字符都会抛
+# UnicodeEncodeError 把整个服务直接崩掉（这是"双击没反应"的真正原因）。
+# 放在文件最顶部，保证在任何 print 之前完成重配置。
+try:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        pass
+except Exception:  # noqa: BLE001
+    pass
+
+
+def log(*args):
+    """安全打印：绝不因为编码问题抛异常。"""
+    try:
+        print(*args, flush=True)
+    except Exception:  # noqa: BLE001
+        try:
+            print(" ".join(str(a) for a in args).encode("ascii", "ignore").decode("ascii"), flush=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+VERSION = "3.3"   # 页脚显示，用于确认正在运行的是新版本
 import html as html_mod
 import json
 import os
 import re
+import sys
 import sqlite3
 import time
 
@@ -158,7 +184,7 @@ def call_ai(messages, timeout=600):
         return call_ollama(messages, timeout)
     except Exception as e:  # noqa: BLE001
         _AI_ERROR["msg"] = f"{type(e).__name__}: {e}"[:300]
-        print("[AI 调用失败]", e)
+        log("[AI 调用失败]", type(e).__name__, e)
         return None
 
 
@@ -181,7 +207,7 @@ def call_openai_api(messages, timeout=300):
     key = get_setting("api_key", "")
     model = get_setting("api_model", "") or "gpt-4o-mini"
     if not base or not key:
-        print("[API 未配置] 请在首页设置里填写 API 地址和 Key")
+        log("[API not configured] set api_base and api_key in settings")
         return None
     r = requests.post(
         f"{base}/chat/completions",
@@ -1272,9 +1298,27 @@ def delete(essay_id):
 
 
 if __name__ == "__main__":
+    # Windows 控制台默认 GBK，print emoji 会抛 UnicodeEncodeError 直接崩掉服务。
+    # 这里强制把标准输出改成 UTF-8（失败就退化成忽略错误），确保启动绝不因日志而崩。
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        pass
+
     host = os.environ.get("HOST", "0.0.0.0")   # 0.0.0.0 = 允许手机通过局域网访问
     port = int(os.environ.get("PORT", "5000"))
-    print(f"英语作文错题集已启动 → http://127.0.0.1:{port}")
+
+    def safe_print(msg):
+        try:
+            print(msg, flush=True)
+        except Exception:  # noqa: BLE001
+            try:
+                print(msg.encode("ascii", "ignore").decode("ascii"), flush=True)
+            except Exception:  # noqa: BLE001
+                pass
+
+    safe_print(f"ShiBeiJi started -> http://127.0.0.1:{port}")
     if host == "0.0.0.0":
         import socket
         try:
@@ -1282,7 +1326,7 @@ if __name__ == "__main__":
             s.connect(("8.8.8.8", 80))
             lan_ip = s.getsockname()[0]
             s.close()
-            print(f"📱 手机（连同一 WiFi）访问 → http://{lan_ip}:{port}")
+            safe_print(f"Phone (same WiFi) -> http://{lan_ip}:{port}")
         except OSError:
             pass
     app.run(host=host, port=port, debug=False, threaded=True, use_reloader=False)

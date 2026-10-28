@@ -109,13 +109,39 @@ probe.Send
 If Err.Number = 0 Then
   If probe.status = 200 Then already = True
 End If
+' also treat "port 5000 is listening" as already-running
+If Not already Then
+  Err.Clear
+  Set ex = sh.Exec("cmd /c netstat -ano | findstr :5000 | findstr LISTENING")
+  outTxt = ex.StdOut.ReadAll
+  If InStr(outTxt, "LISTENING") > 0 Then already = True
+End If
 Err.Clear
 On Error GoTo 0
 
 If already Then
-  W "server already running -> just open browser"
-  sh.Run "cmd /c start http://127.0.0.1:5000", 0, False
-  WScript.Quit
+  W "step1a: port 5000 busy -> wait it becomes ready, then open browser"
+  Set h2 = CreateObject("MSXML2.XMLHTTP")
+  ok2 = False
+  For i = 1 To 25
+    Err.Clear
+    On Error Resume Next
+    h2.Open "GET", "http://127.0.0.1:5000/", False
+    h2.Send
+    If Err.Number = 0 Then
+      If h2.status = 200 Then ok2 = True
+    End If
+    Err.Clear
+    On Error GoTo 0
+    If ok2 Then Exit For
+    WScript.Sleep 1000
+  Next
+  If ok2 Then
+    W "server already running -> just open browser"
+    sh.Run "cmd /c start http://127.0.0.1:5000", 0, False
+    WScript.Quit
+  End If
+  W "port busy but no response -> take it over"
 End If
 
 W "step1b: free port 5000"
