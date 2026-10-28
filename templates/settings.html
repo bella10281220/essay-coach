@@ -102,6 +102,11 @@ function doUpdate(){
   box.innerHTML = '<span style="font-size:13px;color:var(--sub)">正在从 GitHub 下载并覆盖代码（你的文章数据不会动），大约需要 10~30 秒…</span>';
   fetch('/api/update', {method:'POST'}).then(function(r){return r.json();}).then(function(d){
     if (d.ok){
+      if (d.uptodate){
+        btn.disabled = false; btn.textContent = '🔄 一键更新到最新版';
+        box.innerHTML = '<div class="demo-note" style="background:var(--green-bg);color:var(--green-d);border-color:#bfe0cd">'+d.message+'</div>';
+        return;
+      }
       box.innerHTML = '<div class="demo-note" style="background:var(--green-bg);color:var(--green-d);border-color:#bfe0cd">'+d.message+'</div>';
       // 自动等待服务重启完成，然后刷新页面
       var tries = 0;

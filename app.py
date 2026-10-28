@@ -1035,19 +1035,56 @@ def api_update():
         token_file = os.path.join(base, "gh-token.txt")
         if os.path.exists(token_file):
             headers["Authorization"] = "Bearer " + open(token_file).read().strip()
-        r = requests.get(
-            "https://api.github.com/repos/bella10281220/essay-coach/zipball/main",
-            headers=headers, timeout=90)
+        # 先用 raw 上的 VERSION 探一下远端版本（raw 没有 zipball 那种缓存延迟），
+        # 顺手把"已经是最新版"这种情况说清楚，避免重复覆盖、也避免用户以为没生效。
+        remote_ver = ""
+        try:
+            import base64 as b64
+            rv = requests.get(
+                "https://api.github.com/repos/bella10281220/essay-coach/contents/VERSION",
+                headers=headers, timeout=15)
+            if rv.status_code == 200:
+                remote_ver = b64.b64decode(rv.json().get("content", "")).decode(
+                    "utf-8", "ignore").strip()[:20]
+                if remote_ver and remote_ver == VERSION:
+                    return jsonify({"ok": True, "updated": 0, "uptodate": True,
+                                    "message": f"✅ 已经是最新版 v{VERSION}，不需要更新。"})
+        except Exception:  # noqa: BLE001
+            pass
+
+        r = None
+        for attempt in range(3):
+            r = requests.get(
+                "https://api.github.com/repos/bella10281220/essay-coach/zipball/main",
+                headers=headers, timeout=90)
+            if r.status_code == 200:
+                break
+            time.sleep(2)
         if r.status_code == 404:
             return jsonify({"ok": False, "error":
                 "GitHub 返回 404：仓库访问被拒。请确认项目文件夹里有 gh-token.txt"
                 "（内容为你的 GitHub token），或者把仓库改成 Public。"}), 502
-        if r.status_code == 403:
+        if r.status_code == 401 or r.status_code == 403:
             return jsonify({"ok": False, "error":
-                "GitHub 返回 403：token 失效或请求太频繁，请换一个新 token。"}), 502
+                "GitHub 返回 %d：token 失效或请求太频繁。请换一个新 token 放进 gh-token.txt。"
+                % r.status_code}), 502
+        if r.status_code != 200:
+            return jsonify({"ok": False, "error":
+                "GitHub 返回 %d（网络或仓库状态异常），请稍后重试。" % r.status_code}), 502
         r.raise_for_status()
         zf = zipfile.ZipFile(io_mod.BytesIO(r.content))
         root = zf.namelist()[0].split("/")[0]
+        # 备份将被覆盖的旧文件，万一新版有问题可以手动换回来
+        try:
+            bak_dir = os.path.join(base, "data", "backup_before_update")
+            os.makedirs(bak_dir, exist_ok=True)
+            for keep in ("app.py",):
+                src_p = os.path.join(base, keep)
+                if os.path.exists(src_p):
+                    import shutil
+                    shutil.copy2(src_p, os.path.join(bak_dir, keep))
+        except Exception:  # noqa: BLE001
+            pass
         skip_words = ("data/", "gh-token.txt", "更新日志.txt", "启动日志.txt", "start-log.txt")
         updated = 0
         for name in zf.namelist():
@@ -1073,7 +1110,7 @@ def api_update():
                 auto = "请手动重启拾贝集（关掉窗口再双击桌面图标）。"
         else:
             auto = "请手动重启拾贝集。"
-        return jsonify({"ok": True, "updated": updated,
+        return jsonify({"ok": True, "updated": updated, "remote": remote_ver,
                         "message": f"✅ 已更新 {updated} 个文件！{auto}"})
     except Exception as e:  # noqa: BLE001
         return jsonify({"ok": False, "error": f"更新失败：{e}"}), 500
