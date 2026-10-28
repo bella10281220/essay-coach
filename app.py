@@ -6,7 +6,7 @@
 import difflib
 import threading
 
-VERSION = "2.9"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.0"   # 页脚显示，用于确认正在运行的是新版本
 import html as html_mod
 import json
 import os
@@ -384,6 +384,35 @@ def ai_status():
     return jsonify(out)
 
 
+def clean_book_text(c, fallback_content=""):
+    """书架正文：只留干净的修改后文章，去掉 AI 的说明/编号/理由混杂内容"""
+    cand = (c or {}).get("version_current") or ""
+    cand = cand.strip()
+    if not cand:
+        return (fallback_content or "").strip()
+
+    lines = []
+    for ln in cand.splitlines():
+        t = ln.strip()
+        if not t:
+            lines.append("")
+            continue
+        # 剔除明显是"讲解"的行
+        if re.match(r"^([①-⑳]|\d+[.、)）]|[-•*]\s|#)", t):
+            continue
+        if re.search(r"(错误|语法|用词|修改|建议|说明|理由|保留|注意|表示|例如|例句|优化|类｜|批改|版本|整理)", t) and \
+           len(re.findall(r"[\u4e00-\u9fff]", t)) > 3:
+            continue
+        # 中文占比过高的行（讲解）也剔除
+        zh = len(re.findall(r"[\u4e00-\u9fff]", t))
+        if zh > max(4, len(t) * 0.25):
+            continue
+        lines.append(t)
+    text = "\n".join(lines).strip()
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text or cand
+
+
 @app.route("/shelf")
 def shelf():
     """书架：改好的文章像书一样摆着，点开阅读"""
@@ -395,8 +424,8 @@ def shelf():
             "id": e["id"], "title": c.get("book_title") or e["title"],
             "date": time.strftime("%Y-%m-%d", time.localtime(e["created_at"])),
             "score": c.get("score"),
-            "text": c.get("version_current") or e["content"] or "",
-            "advanced": c.get("version_advanced") or "",
+            "text": clean_book_text(c, e["content"]),
+            "advanced": (c.get("version_advanced") or "").strip(),
         })
     return render_template("shelf.html", books=books)
 
@@ -697,6 +726,8 @@ def parse_import(essay_id):
     result = call_ai(messages)
     data = extract_json(result) if result else None
     if not data:
+        data = rule_parse_import(e["raw_import"] or e["content"] or "")
+    if not data:
         return jsonify({"error": "AI 整理失败（Ollama/API 不可用或输出异常），原始内容仍保留，可稍后重试"}), 502
     data.setdefault("sentences", [])
     data.setdefault("vocab", [])
@@ -886,6 +917,31 @@ def phrase_book():
             items.append({"essay_id": e["id"], "essay_title": e["title"],
                           "original": orig, "suggestion": sug,
                           "note": (v.get("note") or "").strip()})
+    # 兜底：批次里 vocab 为空的文章，从逐句修改里提炼词汇对比
+    for e in rows:
+        if not e["correction"]:
+            continue
+        try:
+            c = json.loads(e["correction"])
+        except Exception:  # noqa: BLE001
+            continue
+        if c.get("vocab"):
+            continue
+        for s in c.get("sentences", []):
+            o = (s.get("original") or "").strip()
+            r = (s.get("revised") or "").strip()
+            note = (s.get("note") or "").strip()
+            if not o or not r or o.lower() == r.lower():
+                continue
+            # 只在句子差别不大时（词级改动）作为"表达对比"收录
+            if abs(len(o) - len(r)) > max(25, len(o) * 0.4):
+                continue
+            key = (o.lower()[:120], r.lower()[:120])
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append({"essay_id": e["id"], "essay_title": e["title"],
+                          "original": o, "suggestion": r, "note": note})
     return render_template("phrases.html", items=items)
 
 
@@ -1033,6 +1089,80 @@ else{tip.innerHTML='__ZH_OK3__'+link;}})
     return "javascript:" + js.replace("'", "%27").replace('"', "%22")
 
 
+def rule_parse_import(raw):
+    """AI 不可用时的兜底：按 ①②③ 编号 / '原句 → 修改' 结构做规则化拆分"""
+    text = raw or ""
+    # 去掉开头的对话寒暄与原文引用块（保留"①"之后的内容）
+    m = re.search(r"[①❶1][\s\.、]", text)
+    core = text[m.start():] if m else text
+
+    # 1) 提取 "最值得带走/值得记住 的 N 个表达"
+    vocab = []
+    for vm in re.finditer(r"(\d+)[.、]\s*([A-Za-z][A-Za-z' \-]{2,60})\s*\n+\s*([^\n]+)", core):
+        eng, zh = vm.group(2).strip(), vm.group(3).strip()
+        if re.search(r"[\u4e00-\u9fff]", zh) and len(eng) < 60:
+            vocab.append({"original": eng, "suggestion": zh[:60], "note": ""})
+
+    # 2) 按 ①②③ 切段
+    parts = re.split(r"(?=[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮])", core)
+    sentences = []
+    for p in parts:
+        p = p.strip()
+        if not p or p[0] not in "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮":
+            continue
+        # 去掉编号与"X 类｜..."标题行
+        body = re.sub(r"^[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮]\s*", "", p)
+        lines = [l.strip() for l in body.splitlines() if l.strip()]
+        if not lines:
+            continue
+        head = lines[0]
+        typ = "error"
+        if "优化" in head or "自然" in head:
+            typ = "optimize"
+        elif "保留" in head:
+            typ = "complex_kept"
+        # 讲解 = 剩余的说明行
+        note = "\n".join(lines[1:])
+        # 行内改词模式："原句 修改后句"（英文连续片段成对出现）
+        engs = re.findall(r"[A-Za-z][A-Za-z',\.\!\?\-\s]{6,200}", body)
+        engs = [e.strip(" ,.") for e in engs if len(e.split()) >= 3]
+        if len(engs) >= 2:
+            # 取最长的一对：长句在前、改句在后
+            pair = max(zip(engs, engs[1:]), key=lambda p: len(p[0]) + len(p[1]))
+            orig, rev = pair[0], pair[1]
+            # 若第二句明显更长/更短，仍保留（就是改写）
+        elif len(engs) == 1:
+            orig, rev = engs[0], ""
+        else:
+            continue
+        sentences.append({"original": orig[:300], "type": typ,
+                          "revised": rev[:300], "note": note[:600]})
+
+    # 3) 参考版本（"修改后的参考版本" 之后、第一个中文小标题之前）
+    ver = ""
+    vm = re.search(r"(?:修改后的参考版本|参考版本)[^\n]*\n(.*?)(?:\n[^\x00-\x7F]|\Z)", core, re.S)
+    if vm:
+        ver = vm.group(1).strip()[:4000]
+
+    if not sentences:
+        return None
+
+    # 4) 标题
+    tm = re.search(r"(?:第[一二三四五六七八九十]+篇)[｜|]\s*(.+)", core)
+    title = tm.group(1).strip()[:30] if tm else ""
+
+    return {"summary": "（AI 未连接，以下为规则整理，建议连上 AI 后点「重新整理」获得更完整的讲解）",
+            "score": 0,
+            "error_count": len([s for s in sentences if s["type"] == "error"]),
+            "optimize_count": len([s for s in sentences if s["type"] == "optimize"]),
+            "book_title": title,
+            "sentences": sentences,
+            "vocab": vocab,
+            "wanted_phrases": [],
+            "version_current": ver,
+            "version_advanced": ""}
+
+
 def try_auto_parse(essay_id, content):
     """把已批改的原始内容交给 AI 整理成错题格式；成功返回 True"""
     messages = [
@@ -1041,6 +1171,9 @@ def try_auto_parse(essay_id, content):
     ]
     result = call_ai(messages)
     data = extract_json(result) if result else None
+    if not data:
+        # AI 不可用 → 规则化兜底，至少保证能拆条、能进短语本
+        data = rule_parse_import(content)
     if not data:
         return False
     for k in ("sentences", "vocab", "wanted_phrases"):
