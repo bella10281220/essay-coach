@@ -6,7 +6,7 @@
 import difflib
 import threading
 
-VERSION = "3.1"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.2"   # 页脚显示，用于确认正在运行的是新版本
 import html as html_mod
 import json
 import os
@@ -1285,4 +1285,4 @@ if __name__ == "__main__":
             print(f"📱 手机（连同一 WiFi）访问 → http://{lan_ip}:{port}")
         except OSError:
             pass
-    app.run(host=host, port=port, debug=False)
+    app.run(host=host, port=port, debug=False, threaded=True, use_reloader=False)
