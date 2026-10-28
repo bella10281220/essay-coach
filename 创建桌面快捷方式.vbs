@@ -5,7 +5,7 @@ Set sh = CreateObject("WScript.Shell")
 dir = fso.GetParentFolderName(WScript.ScriptFullName)
 
 ' build launcher filename: 启动错题集（后台）.vbs
-Dim codes : codes = Array(21551,21160,38169,39064,38598,65288,21518,21488,65289)
+Dim codes : codes = Array(25342,36125,38598)
 launcherName = ""
 For Each c In codes : launcherName = launcherName & ChrW(c) : Next
 launcherName = launcherName & ".vbs"
