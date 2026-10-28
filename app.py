@@ -4,6 +4,8 @@
 启动: python3 app.py  → 浏览器打开 http://127.0.0.1:5000
 """
 import difflib
+import os
+import socket
 import sys
 import threading
 
@@ -31,7 +33,21 @@ def log(*args):
             pass
 
 
-VERSION = "3.4"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.5"   # 页脚显示，用于确认正在运行的是新版本
+
+
+def pick_port(default=5000, span=20):
+    """端口被占用时自动向后找空闲端口，避免"旧进程没退干净"导致启动失败。"""
+    for p in range(default, default + span):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind(("127.0.0.1", p))
+            return p
+        except OSError:
+            continue
+    return default
+
 import html as html_mod
 import json
 import os
@@ -1345,7 +1361,25 @@ if __name__ == "__main__":
         pass
 
     host = os.environ.get("HOST", "0.0.0.0")   # 0.0.0.0 = 允许手机通过局域网访问
-    port = int(os.environ.get("PORT", "5000"))
+
+    # 端口固定为 5000（启动器、书签脚本、桌面图标都写死了这个地址）。
+    # 若 5000 被旧进程占用，先尝试清理，实在清不掉就换一个端口并把实际端口写进
+    # data/port.txt，启动器读到后会打开正确的地址。
+    want = int(os.environ.get("PORT", "5000"))
+    port = want
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _ps:
+            _ps.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            _ps.bind(("127.0.0.1", want))
+    except OSError:
+        port = pick_port(want + 1)
+        log(f"[port] {want} is busy, fallback to {port}")
+    try:
+        os.makedirs("data", exist_ok=True)
+        with open(os.path.join("data", "port.txt"), "w", encoding="utf-8") as _pf:
+            _pf.write(str(port))
+    except OSError:
+        pass
 
     def safe_print(msg):
         try:
@@ -1358,7 +1392,6 @@ if __name__ == "__main__":
 
     safe_print(f"ShiBeiJi started -> http://127.0.0.1:{port}")
     if host == "0.0.0.0":
-        import socket
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))

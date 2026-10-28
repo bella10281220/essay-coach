@@ -8,9 +8,11 @@
 Set sh  = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 dir = fso.GetParentFolderName(WScript.ScriptFullName)
+On Error Resume Next
 sh.CurrentDirectory = dir
+On Error GoTo 0
 
-logPath = dir & "\" & ChrW(21551) & ChrW(21160) & ChrW(26085) & ChrW(24535) & ".txt"
+logPath = dir & "\启动日志.txt"
 
 Sub W(s)
   On Error Resume Next
@@ -43,14 +45,14 @@ End If
 
 ' c) common places
 If base = "" Then
-  cands = Array( _
-    dir & "\essay-coach", _
-    sh.ExpandEnvironmentStrings("%USERPROFILE%\Desktop\essay-coach"), _
-    sh.ExpandEnvironmentStrings("%USERPROFILE%\Downloads\essay-coach"), _
-    sh.ExpandEnvironmentStrings("%USERPROFILE%\Downloads\essay-coach-main"), _
-    sh.ExpandEnvironmentStrings("%USERPROFILE%\Documents\essay-coach"), _
-    "C:\essay-coach", "D:\essay-coach" _
-  )
+  Dim cands(6)
+  cands(0) = dir & "\essay-coach"
+  cands(1) = sh.ExpandEnvironmentStrings("%USERPROFILE%\Desktop\essay-coach")
+  cands(2) = sh.ExpandEnvironmentStrings("%USERPROFILE%\Downloads\essay-coach")
+  cands(3) = sh.ExpandEnvironmentStrings("%USERPROFILE%\Downloads\essay-coach-main")
+  cands(4) = sh.ExpandEnvironmentStrings("%USERPROFILE%\Documents\essay-coach")
+  cands(5) = "C:\essay-coach"
+  cands(6) = "D:\essay-coach"
   For Each c In cands
     If HasApp(c) Then base = c : Exit For
     ' also allow one extra level: xxx\essay-coach-main
@@ -66,9 +68,10 @@ End If
 
 ' d) deep search on Desktop / Downloads (max 2 levels)
 If base = "" Then
-  roots = Array(sh.ExpandEnvironmentStrings("%USERPROFILE%\Desktop"), _
-                sh.ExpandEnvironmentStrings("%USERPROFILE%\Downloads"), _
-                sh.ExpandEnvironmentStrings("%USERPROFILE%\Documents"))
+  Dim roots(2)
+  roots(0) = sh.ExpandEnvironmentStrings("%USERPROFILE%\Desktop")
+  roots(1) = sh.ExpandEnvironmentStrings("%USERPROFILE%\Downloads")
+  roots(2) = sh.ExpandEnvironmentStrings("%USERPROFILE%\Documents")
   For Each rt In roots
     If base = "" And fso.FolderExists(rt) Then
       On Error Resume Next
@@ -87,16 +90,18 @@ End If
 
 If base = "" Then
   W "ERROR: app.py not found"
-  MsgBox ChrW(25214) & ChrW(19981) & ChrW(21040) & " app.py" & vbCrLf & vbCrLf & _
-    ChrW(35831) & ChrW(30830) & ChrW(35748) & ChrW(20320) & ChrW(24050) & ChrW(35299) & ChrW(21387) & ChrW(32553) & ChrW(21253) & ChrW(21040) & ChrW(26576) & ChrW(20010) & ChrW(25991) & ChrW(20214) & ChrW(22841) & ChrW(65292) & vbCrLf & _
-    ChrW(24182) & ChrW(20174) & ChrW(35813) & ChrW(25991) & ChrW(20214) & ChrW(22841) & ChrW(20869) & ChrW(21452) & ChrW(20987) & " " & ChrW(25342) & ChrW(36125) & ChrW(38598) & ".vbs" & vbCrLf & vbCrLf & _
-    ChrW(19981) & ChrW(35201) & ChrW(25226) & ChrW(23427) & ChrW(25302) & ChrW(21040) & ChrW(26700) & ChrW(38754) & ChrW(21333) & ChrW(29420) & ChrW(25918) & ChrW(32622) & ChrW(12290), vbExclamation, "ShiBeiJi"
+  m = "找不到 app.py" & vbCrLf & vbCrLf
+  m = m & "请确认你已解压整个文件夹，并从该文件夹内双击 拾贝集.vbs。" & vbCrLf
+  m = m & "不要把它拖到桌面单独放置。" & vbCrLf & vbCrLf
+  m = m & "正确做法：把 拾贝集.vbs 留在 essay-coach 文件夹里，" & vbCrLf
+  m = m & "然后双击 创建桌面快捷方式.vbs 生成桌面图标。"
+  MsgBox m, vbExclamation, "拾贝集"
   WScript.Quit
 End If
 
 W "project folder = " & base
 sh.CurrentDirectory = base
-logPath = base & "\" & ChrW(21551) & ChrW(21160) & ChrW(26085) & ChrW(24535) & ".txt"
+logPath = base & "\启动日志.txt"
 
 ' ---------- 1. already running? ----------
 W "step1: check if server already running"
@@ -167,10 +172,11 @@ If py = "" Then
 End If
 
 If py = "" Then
-  roots2 = Array(sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\Programs\Python"), _
-                 sh.ExpandEnvironmentStrings("%PROGRAMFILES%\Python"), _
-                 sh.ExpandEnvironmentStrings("%PROGRAMFILES(X86)%\Python"), _
-                 "C:\Python")
+  Dim roots2(3)
+  roots2(0) = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\Programs\Python")
+  roots2(1) = sh.ExpandEnvironmentStrings("%PROGRAMFILES%\Python")
+  roots2(2) = sh.ExpandEnvironmentStrings("%PROGRAMFILES(X86)%\Python")
+  roots2(3) = "C:\Python"
   For Each rt In roots2
     If py = "" And fso.FolderExists(rt) Then
       On Error Resume Next
@@ -184,10 +190,11 @@ End If
 
 If py = "" Then
   W "ERROR: python not found"
-  MsgBox ChrW(25214) & ChrW(19981) & ChrW(21040) & " Python" & vbCrLf & vbCrLf & _
-    ChrW(35831) & ChrW(21040) & " https://www.python.org/downloads/ " & ChrW(19979) & ChrW(36733) & ChrW(23433) & ChrW(35013) & vbCrLf & _
-    ChrW(23433) & ChrW(35013) & ChrW(26102) & ChrW(24517) & ChrW(21246) & ChrW(36873) & " Add python.exe to PATH" & vbCrLf & _
-    ChrW(28982) & ChrW(21518) & ChrW(37325) & ChrW(26032) & ChrW(21452) & ChrW(20987) & ChrW(26412) & ChrW(25991) & ChrW(20214), vbExclamation, "ShiBeiJi"
+  m = "找不到 Python" & vbCrLf & vbCrLf
+  m = m & "请打开 https://www.python.org/downloads/ 下载安装，" & vbCrLf
+  m = m & "安装第一步务必勾选 Add python.exe to PATH，" & vbCrLf
+  m = m & "装完后重新双击本文件。"
+  MsgBox m, vbExclamation, "拾贝集"
   WScript.Quit
 End If
 W "python = " & py
@@ -218,11 +225,26 @@ For i = 1 To 40
   If ready Then Exit For
 Next
 
+' read the real port written by app.py (falls back when 5000 is taken)
+urlBase = "http://127.0.0.1:5000"
+portFile = base & "\data\port.txt"
+If fso.FileExists(portFile) Then
+  On Error Resume Next
+  Set pf = fso.OpenTextFile(portFile, 1, False)
+  pv = Trim(pf.ReadAll)
+  pf.Close
+  On Error GoTo 0
+  If Len(pv) > 0 And Len(pv) < 6 Then urlBase = "http://127.0.0.1:" & pv
+End If
+W "open " & urlBase
+
 If ready Then
   W "server ready -> open browser"
-  sh.Run "cmd /c start http://127.0.0.1:5000", 0, False
+  sh.Run "cmd /c start " & urlBase, 0, False
 Else
   W "ERROR: server not ready in 40s"
   sh.Run "cmd /c start notepad.exe """ & logPath & """", 0, False
-  MsgBox ChrW(21551) & ChrW(21160) & ChrW(22833) & ChrW(36133) & ChrW(65292) & ChrW(35814) & ChrW(24773) & ChrW(35265) & " " & ChrW(21551) & ChrW(21160) & ChrW(26085) & ChrW(24535) & ".txt", vbExclamation, "ShiBeiJi"
+  m = "启动失败：40 秒内服务没有就绪。"
+  m = m & vbCrLf & vbCrLf & "下面会自动打开 启动日志.txt，请把它发给我。"
+  MsgBox m, vbExclamation, "拾贝集"
 End If
