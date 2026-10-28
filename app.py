@@ -1334,6 +1334,7 @@ def delete(essay_id):
     return redirect(ref or url_for("index"))
 
 
+
 if __name__ == "__main__":
     # Windows 控制台默认 GBK，print emoji 会抛 UnicodeEncodeError 直接崩掉服务。
     # 这里强制把标准输出改成 UTF-8（失败就退化成忽略错误），确保启动绝不因日志而崩。
