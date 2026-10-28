@@ -113,7 +113,7 @@ footer{color:var(--sub);font-size:12px;text-align:center;margin-top:34px}
 </div>
 <div class="container">
 {% block body %}{% endblock %}
-<footer>数据保存在本地 · AI 批改由本机 Ollama 或在线 API 完成 · 拾贝集 v{{ version }}</footer>
+<footer>数据保存在本地 · AI 批改由本机 Ollama 或在线 API 完成 · 拾贝集 <a href="/settings" title="点这里查看并更新版本" style="color:inherit;text-decoration:none;border-bottom:1px dotted currentColor">v{{ version }}</a></footer>
 </div>
 <script>
 /* 服务重启/短暂断开时自动重连，避免出现"无法访问"页面 */

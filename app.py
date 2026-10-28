@@ -31,7 +31,7 @@ def log(*args):
             pass
 
 
-VERSION = "3.3"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.4"   # 页脚显示，用于确认正在运行的是新版本
 import html as html_mod
 import json
 import os

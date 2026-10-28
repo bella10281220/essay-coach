@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block body %}
 <div class="card">
-  <h2>⚙️ 设置 <small>模型来源 / API</small></h2>
+  <h2>⚙️ 设置 <small>模型来源 / API / 版本 v{{ version }}</small></h2>
   {% if request.args.get('saved') %}
   <div class="demo-note" style="background:var(--green-bg);color:var(--green-d);border-color:#bfe0cd">
     ✅ 设置已保存！记得点下面的「🔍 测试连接」确认 AI 能连上。
