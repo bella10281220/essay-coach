@@ -33,7 +33,7 @@ def log(*args):
             pass
 
 
-VERSION = "3.11"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.12"   # 页脚显示，用于确认正在运行的是新版本
 
 
 def pick_port(default=5000, span=20):
@@ -1087,6 +1087,8 @@ def shelf():
         c = safe_correction(e["correction"])
         adv = as_text(c.get("version_advanced")).strip()
         annotated, _, clean_orig, _cards = build_annotated(c, {}) if c else ("", [], "", [])
+        # 逐句卡片：与「我的文章」详情页同一套渲染（用户要求两处格式一致）
+        cards = _cards or []
         clean_text = clean_book_text(c, e["content"])
         # 导入的文章常没有 version_current，clean_book_text 会退回用户粘贴的
         # 「原文+删除线+讲解」混杂文本。这时改用逐句拼出来的干净原文。
@@ -1099,8 +1101,9 @@ def shelf():
             "text": clean_text,
             # 进阶版也可能混着讲解，同样过一遍清洗
             "advanced": clean_book_text({"version_current": adv}),
-            # 完整批改：原文 + 划线 + 可点讲解
+            # 完整批改：逐句卡片（与详情页格式一致）+ 行内版兜底
             "annotated": annotated,
+            "cards": cards,
         })
     return render_template("shelf.html", books=books)
 
@@ -1538,7 +1541,7 @@ def _render_views(segs, typ, i):
             affected.append(tail)
     affected = [a for a in affected if a]
 
-    def wrap(kind, txt, view):
+    def wrap(kind, txt, view, tight=False):
         cls = None
         if view == "orig":
             if kind == "del":
@@ -1552,10 +1555,23 @@ def _render_views(segs, typ, i):
                 return ""
         if not cls:
             return esc(txt)
-        return f'<span class="{cls}" onclick="showDetail({i})">{esc(txt)}</span>'
+        return f'<span class="{cls}{" tight" if tight else ""}" onclick="showDetail({i})">{esc(txt)}</span>'
 
-    orig_html = "".join(wrap(k, t, "orig") for k, t in segs if t)
-    rev_html = "".join(wrap(k, t, "rev") for k, t in segs if t)
+    # 词内拼接的碎片（前一片段以字母结尾 / 后一片段以字母开头）不加内边距，
+    # 否则 work|ing 会被 padding 撑出空隙
+    def mark_tight(segs_):
+        res = []
+        for n, (k, t) in enumerate(segs_):
+            prev_end = segs_[n - 1][1].rstrip(" ") if n else ""
+            next_start = segs_[n + 1][1].lstrip(" ") if n + 1 < len(segs_) else ""
+            joined_before = bool(prev_end) and re.search(r"[A-Za-z]$", prev_end)
+            joined_after = bool(next_start) and re.match(r"[A-Za-z]", next_start)
+            res.append((k, t, bool(joined_before or joined_after)))
+        return res
+
+    flagged = mark_tight(segs)
+    orig_html = "".join(wrap(k, t, "orig", tight=tj) for k, t, tj in flagged if t)
+    rev_html = "".join(wrap(k, t, "rev", tight=tj) for k, t, tj in flagged if t)
 
     # 修改视图里一个绿标都没有 → 把「删除位置之后最近的完整词」补标绿
     if "hl-ins" not in rev_html and "hl-opt" not in rev_html and affected:
@@ -1695,7 +1711,13 @@ PARSE_PROMPT = """你是一位英语写作老师的数据整理助手。下面�
 5. summary：用中文写一句总体评价（概括这段批改的核心结论）。score 给出合理的 1-10 分估计；error_count / optimize_count 按整理结果统计。
 6. book_title：给这篇作文起一个简短的书名（4-12 个字，像书架上书的名字，例如「环境污染之我见」「难忘的一次旅行」），根据作文主题起，不要带日期。
 7. wanted_phrases：空数组。
-8. 拆分要求：sentences 通常有 5~15 条，**每条只对应一句话的一处修改，绝不允许把整段或整篇塞进一条 sentences**。如果批改原文是"原句中带删除线改词"的行内形式（如 I'm work ~~working~~），先还原出学生的完整原句，再把每处修改单独拆成一条。
+8. 拆分要求：sentences 通常有 5~15 条，**每条只对应一句话的一处修改，绝不允许把整段或整篇塞进一条 sentences**。
+   **删除线标记说明：原文里 ~~xx~~ 包住的内容是学生原句中被划掉的部分（AI 批改时的删除线）**。
+   整理 sentences 时必须遵守：
+   - original（学生原句）= **保留 ~~xx~~ 的文字**（例如 I'm ~~work~~ working 的原句是 "I'm work working for..." 中被划掉的部分要含进去：原句逐字是 "I'm work for..." 就写 "I'm work for..."，~~标记本身不要写进 original）
+   - revised（改后句）= **不含 ~~xx~~ 内容**的完整正确句子
+   - **绝不允许把 revised（改好的句子）当成 original**——original 是学生写错的版本，即使里面有语法错误也要逐字保留
+   - 没有删除线标记、且原文与改写相同的句子才标 "good"
 9. vocab 除了词汇建议外，**还必须把结尾的"最值得带走的表达 / 好句"清单也收进来**：original 填英文表达本身，suggestion 填中文含义，note 填例句和使用说明。
 10. 忽略寒暄、追问、与批改无关的内容。找不到任何批改信息时，sentences 给空数组并在 summary 说明。
 
@@ -2213,7 +2235,13 @@ def make_bookmarklet_paste():
 
 
 def make_bookmarklet(mode="new"):
-    """生成抓取书签的 JS 代码：带全程浮动提示条，直接抓对话主区域（不依赖选中）"""
+    """生成抓取书签的 JS 代码：带全程浮动提示条，直接抓对话主区域（不依赖选中）
+
+    关键：**不**用 innerText——它会把删除线文字拍平混进正文，AI 解析时
+    就分不清「学生原句」和「改后句子」（用户反馈：捕捉少了东西、把改对的
+    句子当成原句）。这里按 DOM 遍历，删除线内容（<del>/<s>/line-through）
+    用 ~~xx~~ 包起来，后端据此精确还原原文与修改。
+    """
     tpl = r"""
 (function(){
 function toast(html,color,sticky){var d=document.createElement('div');
@@ -2221,17 +2249,44 @@ d.style.cssText='position:fixed;top:16px;left:50%;transform:translateX(-50%);z-i
 d.innerHTML=html;document.body.appendChild(d);
 if(!sticky){setTimeout(function(){d.remove();},9000);}
 return d;}
+function strike(el){
+ try{
+  if(/^(DEL|S)$/.test(el.tagName))return true;
+  var d=getComputedStyle(el);
+  if((d.textDecorationLine||d.textDecoration||'').indexOf('line-through')>=0)return true;
+ }catch(e){}
+ return false;}
+function walk(el,out){
+ var kids=el.childNodes;
+ for(var i=0;i<kids.length;i++){
+  var n=kids[i];
+  if(n.nodeType===3){out.txt+=n.nodeValue;continue;}
+  if(n.nodeType!==1)continue;
+  var tg=n.tagName;
+  if(/^(SCRIPT|STYLE|NOSCRIPT|SVG|BUTTON)$/.test(tg))continue;
+  if(strike(n)){
+   var inner=(n.innerText||n.textContent||'').replace(/\s+/g,' ').trim();
+   if(inner)out.txt+='~~'+inner+'~~';
+   out.txt+=' ';
+   continue;}
+  if(/^(BR)$/.test(tg)){out.txt+='\n';continue;}
+  if(/^(P|DIV|LI|TR|SECTION|H[1-6]|UL|OL|TABLE|PRE|BLOCKQUOTE)$/.test(tg)){
+   out.txt+='\n';walk(n,out);out.txt+='\n';continue;}
+  walk(n,out);
+ }
+}
 var cands=[];
 try{cands=Array.prototype.slice.call(document.querySelectorAll('main,article,[data-testid^="conversation"],div[class*="conversation"],div[class*="chat"]'));}catch(e){}
 cands.push(document.body);
 var best='',area='';
 for(var i=0;i<cands.length;i++){
  try{
-  var t=(cands[i].innerText||'').replace(/\n{3,}/g,'\n\n').trim();
+  var o={txt:''};walk(cands[i],o);
+  var t=o.txt.replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').replace(/[ \t]{2,}/g,' ').trim();
   if(t.length>best.length){best=t;area=(cands[i].tagName||'').toLowerCase();}
  }catch(e){}
 }
-best=(best||'').slice(0,12000);
+best=(best||'').slice(0,16000);
 if(best.length<150){toast('__ZH_NOTEXT__','#b98a3a',true);return;}
 var tip=toast('__ZH_WAIT__'+best.length+' __ZH_CHARS__&hellip;','#555',true);
 fetch('http://127.0.0.1:5000/api/capture',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:best,title:document.title,mode:'__MODE__'})})

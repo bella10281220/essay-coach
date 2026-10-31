@@ -41,9 +41,33 @@
       <!-- 只看正文：纯修改后的文章，没有任何讲解 -->
       <div class="book-text mode-clean" id="m-clean-{{ b.id }}">{% if b.text %}{{ b.text }}{% else %}<span class="empty-tip">这篇还没有整理出干净的正文。<br>点下面的「📝 回看批改标注」→ 点「重新整理」，或者重新批改一次就会生成。</span>{% endif %}</div>
 
-      <!-- 完整批改：原文 + 划线 + 逐句讲解 -->
+      <!-- 完整批改：逐句卡片（与「我的文章」详情页同一套格式） -->
       <div class="mode-full" id="m-full-{{ b.id }}" style="display:none">
-        {% if b.annotated %}
+        {% if b.cards %}
+          {% for s in b.cards %}
+          <div class="fix-card">
+            <div class="fix-no">第 {{ loop.index }} 句
+              <span class="dt-tag badge {{ {'error':'err','optimize':'opt','complex_kept':'mint','good':'score'}[s.type] }}" style="margin-left:6px">
+                {{ {'error':'错误','optimize':'可优化','complex_kept':'复杂句·已保留','good':'写得好'}[s.type] }}
+              </span>
+            </div>
+            {% if s.type == 'good' %}
+              <div class="fix-box orig good-only">{{ s.orig_html|safe }}</div>
+            {% else %}
+            <div class="fix-label">原文</div>
+            <div class="fix-box orig">{{ s.orig_html|safe }}</div>
+            <div class="fix-label">修改</div>
+            <div class="fix-box revised">{{ s.rev_html|safe }}</div>
+            {% endif %}
+            {% if s.bullets %}
+            <ul class="fix-notes">
+              {% for n in s.bullets %}<li>{{ n }}</li>{% endfor %}
+            </ul>
+            {% endif %}
+            <div class="fix-ask"><a href="{{ url_for('essay', essay_id=b.id) }}">对这句提问 / 查看详情 →</a></div>
+          </div>
+          {% endfor %}
+        {% elif b.annotated %}
         <div class="book-text an"><p>{{ b.annotated|safe }}</p></div>
         {% else %}
         <div class="book-text"><p class="empty-tip">没有逐句批改记录。</p></div>
@@ -92,6 +116,26 @@
 .reader-page{display:none}
 .reader-page.open{display:block}
 .book-text{font-size:17px;line-height:2.1;color:var(--ink);white-space:pre-wrap}
+/* 逐句批改卡片：与详情页同一套样式 */
+.fix-card{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;background:#fff}
+.fix-no{font-size:13px;color:var(--sub);margin-bottom:8px}
+.fix-label{font-size:12px;color:var(--sub);margin:6px 0 3px}
+.fix-box{padding:10px 14px;border-radius:8px;font-size:16px;line-height:2.05}
+.fix-box.orig{background:#fdecec}
+.fix-box.orig.good-only{background:#f4faf7}
+.fix-box.revised{background:#e9f7ef}
+.hl-del.tight{padding:0;border-radius:2px}
+.hl-ins.tight{padding:0;border-radius:2px}
+.hl-opt.tight{padding:0;border-radius:2px}
+.hl-del{background:#e05252;color:#fff;border-radius:4px;padding:0 4px}
+.hl-ins{background:#2e9e5b;color:#fff;border-radius:4px;padding:0 4px;font-weight:600}
+.hl-opt-old{background:none;color:#b07a1f;border-bottom:2px dotted #e9b970}
+.hl-opt{background:#e9a23b;color:#fff;border-radius:4px;padding:0 4px;font-weight:600}
+.fix-notes{margin:10px 0 0;padding-left:20px;font-size:13.5px;color:var(--ink);line-height:1.9}
+.fix-notes li{margin-bottom:2px}
+.fix-ask{margin-top:8px;font-size:12.5px}
+.fix-ask a{color:var(--green-d);text-decoration:none}
+.fix-ask a:hover{text-decoration:underline}
 .switch{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
 .sw{padding:5px 14px;border-radius:99px;border:1px solid var(--line);background:#fff;
     color:var(--sub);font-size:13px;cursor:pointer;font-family:inherit;transition:.15s}
