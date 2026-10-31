@@ -31,12 +31,29 @@
       <button class="btn ghost small" onclick="closeBook()" style="float:right">✕ 合上</button>
       <p style="font-size:13px;color:var(--green-d);letter-spacing:2px">{{ b.date }} · 评分 {{ b.score or '-' }}/10</p>
       <h2 style="margin:6px 0 18px">{{ b.title }}</h2>
-      <div class="book-text">{{ b.text }}</div>
-      {% if b.advanced %}
-      <details style="margin-top:24px">
-        <summary style="cursor:pointer;font-size:14px;color:var(--green-d)">查看进阶版</summary>
-        <div class="book-text" style="background:var(--sky-bg);border-radius:12px;padding:16px;margin-top:10px">{{ b.advanced }}</div>
-      </details>
+
+      <div class="switch">
+        <button class="sw on" onclick="showMode({{ b.id }},'clean',this)">📖 只看正文</button>
+        <button class="sw" onclick="showMode({{ b.id }},'full',this)">🔍 看完整批改</button>
+        <button class="sw" onclick="showMode({{ b.id }},'adv',this)">🎓 进阶版</button>
+      </div>
+
+      <!-- 只看正文：纯修改后的文章，没有任何讲解 -->
+      <div class="book-text mode-clean" id="m-clean-{{ b.id }}">{% if b.text %}{{ b.text }}{% else %}<span class="empty-tip">这篇还没有整理出干净的正文。<br>点下面的「📝 回看批改标注」→ 点「重新整理」，或者重新批改一次就会生成。</span>{% endif %}</div>
+
+      <!-- 完整批改：原文 + 划线 + 逐句讲解 -->
+      <div class="mode-full" id="m-full-{{ b.id }}" style="display:none">
+        {% if b.annotated %}
+        <div class="book-text an"><p>{{ b.annotated|safe }}</p></div>
+        {% else %}
+        <div class="book-text"><p class="empty-tip">没有逐句批改记录。</p></div>
+        {% endif %}
+      </div>
+
+      <!-- 进阶版 -->
+      <div class="book-text mode-adv" id="m-adv-{{ b.id }}" style="display:none;background:var(--sky-bg);border-radius:12px;padding:16px">{% if b.advanced %}{{ b.advanced }}{% else %}<span class="empty-tip">这篇还没有进阶版。</span>{% endif %}</div>
+
+      {% if false %}
       {% endif %}
       <div style="margin-top:24px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <a class="btn ghost small" href="{{ url_for('essay', essay_id=b.id) }}">📝 回看批改标注</a>
@@ -75,6 +92,14 @@
 .reader-page{display:none}
 .reader-page.open{display:block}
 .book-text{font-size:17px;line-height:2.1;color:var(--ink);white-space:pre-wrap}
+.switch{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+.sw{padding:5px 14px;border-radius:99px;border:1px solid var(--line);background:#fff;
+    color:var(--sub);font-size:13px;cursor:pointer;font-family:inherit;transition:.15s}
+.sw:hover{border-color:var(--green)}
+.sw.on{background:var(--green);border-color:var(--green);color:#fff}
+.empty-tip{color:var(--sub);font-size:14px;line-height:1.9}
+.book-text.an{font-size:16px;line-height:2.2}
+.book-text.an .mk{cursor:default}
 </style>
 
 <script>
@@ -101,6 +126,16 @@ function deleteBook(id){
 function closeBook(){
   document.getElementById('reader').style.display = 'none';
   document.body.style.overflow = '';
+}
+function showMode(id, mode, btn){
+  var wrap = document.getElementById('reader-'+id);
+  if (!wrap) return;
+  ['clean','full','adv'].forEach(function(m){
+    var el = document.getElementById('m-'+m+'-'+id);
+    if (el) el.style.display = (m === mode) ? '' : 'none';
+  });
+  wrap.querySelectorAll('.sw').forEach(function(b){ b.classList.remove('on'); });
+  if (btn) btn.classList.add('on');
 }
 </script>
 {% endblock %}

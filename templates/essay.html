@@ -107,13 +107,13 @@
 <div id="tab-cur" style="display:none">
   <div class="card">
     <p style="color:var(--sub);font-size:13px;margin-bottom:8px">贴近你当前水平的改写，今天就能模仿。</p>
-    <p style="white-space:pre-wrap;background:#f4faf7;padding:16px;border-radius:12px;font-size:15px">{{ c.version_current }}</p>
+    <p style="white-space:pre-wrap;background:#f4faf7;padding:16px;border-radius:12px;font-size:15px">{{ clean_cur }}</p>
   </div>
 </div>
 <div id="tab-adv" style="display:none">
   <div class="card">
     <p style="color:var(--sub);font-size:13px;margin-bottom:8px">进阶版本：更高级的词汇与句式，作为学习目标。</p>
-    <p style="white-space:pre-wrap;background:var(--sky-bg);padding:16px;border-radius:12px;font-size:15px">{{ c.version_advanced }}</p>
+    <p style="white-space:pre-wrap;background:var(--sky-bg);padding:16px;border-radius:12px;font-size:15px">{{ clean_adv }}</p>
     {% if c.version_advanced_notes %}
     <strong style="display:block;margin:18px 0 8px">为什么这样更好：</strong>
     {% for n in c.version_advanced_notes %}
