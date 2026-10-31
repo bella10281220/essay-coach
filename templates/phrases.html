@@ -3,22 +3,31 @@
 <div class="card hero">
   <h2>🧺 短语本</h2>
   <p style="font-size:14px;color:var(--sub)">
-    每篇文章批改时提到的词汇、固定短语都会自动收集到这里（重复的只留一条）。
-    复习时扫一眼，写作时就能想起来用。
+    每篇文章批改时提到的<b>词汇</b>、<b>固定短语</b>、<b>句型</b>都会自动收集到这里；
+    重复的只留一条。复习时扫一眼，写作时就能想起来用。
   </p>
 </div>
 
 {% if items %}
 <div class="card">
   <table>
-    <tr><th style="width:32%">原表达</th><th style="width:32%">更好的说法</th><th>说明</th></tr>
+    <tr>
+      <th style="width:26%">英文（短语 / 句型）</th>
+      <th style="width:30%">含义 / 更好说法</th>
+      <th>讲解 · 出处</th>
+    </tr>
     {% for v in items %}
     <tr>
-      <td style="color:#d97b7b">{{ v.original }}</td>
-      <td style="color:var(--green-d);font-weight:600">{{ v.suggestion }}</td>
+      <td style="color:var(--green-d);font-weight:600">
+        {{ v.original }}
+        {% if v.kind == 'pattern' %}<span class="tag">句型</span>
+        {% elif v.kind == 'wanted' %}<span class="tag">我想说</span>
+        {% elif v.kind == 'word' %}<span class="tag">词汇</span>{% endif %}
+      </td>
+      <td style="color:#d97b7b">{{ v.suggestion }}</td>
       <td style="color:var(--sub)">
         {{ v.note }}
-        <a href="{{ url_for('essay', essay_id=v.essay_id) }}" style="font-size:12px;margin-left:6px">出自《{{ v.essay_title }}》↗</a>
+        <a href="{{ url_for('essay', essay_id=v.essay_id) }}" style="font-size:12px;margin-left:6px;white-space:nowrap">出自《{{ v.essay_title }}》↗</a>
       </td>
     </tr>
     {% endfor %}
@@ -26,6 +35,19 @@
   <p style="font-size:12px;color:var(--sub);margin-top:10px">共 {{ items|length }} 条 · 自动去重 · 点击「出自」可回到原文</p>
 </div>
 {% else %}
-<div class="card"><p class="empty">短语本还是空的。批改过的文章里出现的词汇建议会自动出现在这里。</p></div>
+<div class="card">
+  <p class="empty">短语本还是空的。</p>
+  <p style="font-size:13px;color:var(--sub);line-height:1.8">
+    文章批改完成后，讲解里出现的「take up 是一个短语动词」「句型：某件事 + takes + 时间」
+    这类内容会自动收进来。<br>
+    如果之前批改过的文章没有出现在这里，说明那些文章的讲解里还没写到这类表述——
+    重新批改一次就会补上。
+  </p>
+</div>
 {% endif %}
+
+<style>
+.tag{display:inline-block;font-size:11px;font-weight:400;padding:1px 7px;border-radius:99px;
+     background:var(--sky-bg);color:var(--green-d);margin-left:6px;vertical-align:middle}
+</style>
 {% endblock %}

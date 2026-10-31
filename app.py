@@ -33,7 +33,7 @@ def log(*args):
             pass
 
 
-VERSION = "3.5"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.6"   # 页脚显示，用于确认正在运行的是新版本
 
 
 def pick_port(default=5000, span=20):
@@ -426,57 +426,188 @@ def ai_status():
     return jsonify(out)
 
 
-PHRASE_PATTERNS = [
-    # "take up 是一个短语动词" / "pay attention to 表示……"
-    re.compile(r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,4})\s*"
-               r"(?:是|是一个|表示|意思是|指的是|为|：|:)"),
-    # "句型：某件事 + takes + 时间"
-    re.compile(r"句型\s*[:：]\s*([^\n]{2,60})"),
-    # "XX 短语 / XX 搭配"
-    re.compile(r"([A-Za-z][A-Za-z'\- ]{2,30})\s*(?:短语|搭配|固定表达|短语动词)"),
-]
+STOP_ENG = {
+    "english", "i", "you", "he", "she", "it", "we", "they", "this", "that",
+    "the", "a", "an", "is", "are", "was", "were", "and", "or", "but",
+}
 
-def extract_phrases_from_notes(c):
-    """从逐句讲解里挖出短语/句型，返回 vocab 结构"""
+# 句型类：整段原样留下（"某件事 + takes + 时间" 这种中英混排不能拆）
+PAT_PATTERN = re.compile(r"句型\s*[:：]\s*([^\n。；]{2,80})")
+
+# "take up 是一个短语动词，表示开始从事某项爱好"
+#   → 英文短语 = take up，含义 = 开始从事某项爱好
+# 这里要贪婪匹配到"最后一个"系动词，避免只抓到 "take up is a"。
+PHRASE_VERB = (r"(?:是一个|是|表示|意思是|意为|指的是|用来表示|指的是|即|就是指)")
+PAT_WORD = re.compile(
+    r"([A-Za-z][A-Za-z'\-]*(?:[ \t]+[A-Za-z][A-Za-z'\-]*){0,4})"
+    r"\s*" + PHRASE_VERB + r"\s*(.+)$")
+
+# "take up 这个短语" / "as a result 固定搭配"
+PAT_TAG = re.compile(
+    r"([A-Za-z][A-Za-z'\-]*(?:[ \t]+[A-Za-z][A-Za-z'\-]*){0,4})\s*"
+    r"(?:这个|这种)?\s*(?:短语动词|短语|搭配|固定表达|固定搭配|习语|句式)")
+
+# 含义部分如果只是"一个短语动词 / 短语 / 搭配"，说明后面才是真正的解释
+JUST_CATEGORY = re.compile(r"^(?:一个|一种)?\s*(?:短语动词|短语|固定表达|固定搭配|搭配|习语|句式|"
+                           r"动词|名词|形容词|副词|介词|连词|用法)$")
+
+
+def _note_chunks(text):
+    """把一段讲解拆成可独立判断的小句"""
+    text = as_text(text)
+    for ch in re.split(r"[\n。；;！!？?]+", text):
+        ch = ch.strip(" \t·-—")
+        if len(ch) >= 4:
+            yield ch
+
+
+def _meaning(tail):
+    """从"表示 XXX，YYY"里取出真正的中文含义"""
+    tail = (tail or "").strip(" ，,：:、")
+    # 去掉开头的"一个短语动词 / 表示 / 意思是"这类连接词，保留真正的解释
+    for _ in range(3):
+        before = tail
+        tail = re.sub(r"^(?:是一个|是|一个|一种)\s*", "", tail)
+        tail = re.sub(r"^(?:短语动词|短语|固定表达|固定搭配|搭配|习语|句式|"
+                      r"动词|名词|形容词|副词|介词|连词|用法)\s*[，,、]?\s*", "", tail)
+        tail = re.sub(r"^(?:表示|意思是|意为|指的是|就是指|指|即)\s*", "", tail)
+        tail = tail.strip(" ，,：:、")
+        if tail == before:
+            break
+    return tail[:80] or "短语 / 固定表达"
+
+
+def extract_phrases_from_notes(c, where=""):
+    """从逐句讲解里挖出短语 / 句型，返回 [{original, suggestion, note}]。
+
+    original   = 英文短语（句型类保留原样，以「句型：」开头）
+    suggestion = 中文含义
+    note       = 完整讲解，复习时看上下文
+    """
+    c = c if isinstance(c, dict) else {}
     found, seen = [], set()
-    for sn in c.get("sentences", []):
-        note = sn.get("note") or ""
-        if not note:
+
+    def push(eng, zh, note, is_pattern=False):
+        eng = (eng or "").strip(" ，,。.:：、\"'")
+        if len(eng) < 2 or not re.search(r"[A-Za-z]", eng):
+            return
+        if eng.lower() in STOP_ENG:
+            return
+        # 句型是"某件事 + takes + 时间 + to do"这种模板，允许更长；
+        # 普通短语超过 6 个词基本就是整句了，不要。
+        limit = 16 if is_pattern else 6
+        if len(eng.split()) > limit:
+            return
+        key = eng.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        zh = (zh or "").strip()
+        found.append({"original": eng[:80],
+                      "suggestion": zh[:80] or "（见讲解）",
+                      "note": (note or zh)[:200],
+                      "where": where})
+
+    for sn in as_list(c.get("sentences")):
+        if not isinstance(sn, dict):
             continue
-        # 按行/句拆开逐条匹配
-        chunks = re.split(r"[\n。；;！!？?]", note)
-        for ch in chunks:
-            ch = ch.strip()
-            if not ch or len(ch) < 4:
-                continue
-            for pat in PHRASE_PATTERNS:
-                for m in pat.finditer(ch):
-                    eng = (m.group(1) or "").strip(" ，,。.")
-                    if not eng or len(eng) < 3:
-                        continue
-                    if not re.search(r"[A-Za-z]", eng):
-                        continue
-                    # 过滤掉纯语法术语
-                    if eng.lower() in ("english", "i", "you", "it", "this", "that"):
-                        continue
-                    key = eng.lower()
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    # 说明取整句中文
-                    zh = ch if re.search(r"[\u4e00-\u9fff]", ch) else ""
-                    found.append({"original": eng[:80],
-                                  "suggestion": zh[:80] or "(见原句讲解)",
-                                  "note": zh[:200]})
+        note = as_text(sn.get("note"))
+        if note:
+            for ch in _note_chunks(note):
+                # 1) 句型优先，整段原样保留（中英混排，不能拆词）
+                for m in PAT_PATTERN.finditer(ch):
+                    pat = m.group(1).strip()
+                    if re.search(r"[A-Za-z]", pat):
+                        push("句型：" + pat, "句型", ch, is_pattern=True)
+                # 2) "take up 是一个短语动词，表示开始从事某项爱好"
+                for m in PAT_WORD.finditer(ch):
+                    push(m.group(1), _meaning(m.group(2)), ch)
+                # 3) "take up 这个短语" —— 只在没有解释时补一条
+                for m in PAT_TAG.finditer(ch):
+                    push(m.group(1), "短语 / 固定表达", ch)
+
+        # 4) 优化句里只换了一两个词，也值得记成搭配
+        o = as_text(sn.get("original")).strip()
+        r = as_text(sn.get("revised")).strip()
+        if (o and r and o.lower() != r.lower()
+                and as_text(sn.get("type")) == "optimize"):
+            ow, rw = o.split(), r.split()
+            if 2 <= len(ow) == len(rw) <= 14:
+                low_r = [x.lower() for x in rw]
+                low_o = [x.lower() for x in ow]
+                diff_o = [w for w in ow if w.lower() not in low_r]
+                diff_r = [w for w in rw if w.lower() not in low_o]
+                if 0 < len(diff_r) <= 2 and len(" ".join(diff_r)) <= 40:
+                    push(" ".join(diff_r),
+                         "（比 " + " ".join(diff_o) + " 更自然）" if diff_o else "更自然的说法",
+                         note or "")
     return found
 
 
+# ------------------------------------------------------------------ 数据清洗
+# 用户的库可能是旧版本存的、也可能是从 ChatGPT 粘贴导入的，
+# 结构经常不规整（vocab 里混进字符串、score 是 None、version_current 里
+# 混着中文讲解……）。所有读取入口都先过一遍 safe_correction / as_list，
+# 保证任何脏数据都不会把页面打挂。
+
+def safe_correction(raw):
+    """把 correction 字段安全解析成 dict，任何异常都退化成空 dict。"""
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def as_list(v):
+    """保证拿到 list（旧数据里可能是字符串 / None / 单个 dict）。"""
+    if isinstance(v, list):
+        return v
+    if isinstance(v, dict):
+        return [v]
+    return []
+
+
+def as_text(v):
+    """保证拿到 str，None -> ''，字典列表 -> 可读文本。"""
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, list):
+        return "\n".join(as_text(x) for x in v)
+    if isinstance(v, dict):
+        return " ".join(as_text(x) for x in v.values())
+    return str(v)
+
+
 def clean_book_text(c, fallback_content=""):
-    """书架正文：只留干净的修改后文章，去掉 AI 的说明/编号/理由混杂内容"""
-    cand = (c or {}).get("version_current") or ""
-    cand = cand.strip()
+    """书架正文：只留干净的修改后文章，去掉 AI 的说明/编号/理由混杂内容。
+
+    判断顺序（宁可多留一句正文，也不要误删）：
+      1. 编号 / 列表符号 / Markdown 标题 → 丢
+      2. 整行以讲解词开头（"错误：""建议：""这里要注意…"）→ 丢
+      3. 中文数量 ≥ 英文数量的一半 → 是讲解，丢
+      4. 英文句里夹着中文注解 → 只剪掉中文片段，英文留着
+    """
+    c = c if isinstance(c, dict) else {}
+    cand = as_text(c.get("version_current") or c.get("version_advanced")).strip()
     if not cand:
-        return (fallback_content or "").strip()
+        return as_text(fallback_content).strip()
+
+    # 中文句号/分号之后才是新的一句，不要碰英文正文里的句点
+    cand = re.sub(r"(?<=[\u4e00-\u9fff。；])[。；]\s*", "\n", cand)
+
+    LEAD_EXPLAIN = re.compile(
+        r"^(错误|语法|时态|用词|搭配|表达|修改|建议|说明|理由|原因|注意|保留|表示|"
+        r"例如|例句|优化|批改|版本|整理|点评|解析|翻译|改为|替换|应为|应当|"
+        r"这里|意思是|指的是|之所以|因为|所以|得分|评分|注|备注|版本|点评)")
 
     lines = []
     for ln in cand.splitlines():
@@ -484,20 +615,31 @@ def clean_book_text(c, fallback_content=""):
         if not t:
             lines.append("")
             continue
-        # 剔除明显是"讲解"的行
-        if re.match(r"^([①-⑳]|\d+[.、)）]|[-•*]\s|#)", t):
+        if re.match(r"^([①-⑳]|\d+[.、)）]|[-•*·]\s|#{1,6}\s)", t):
             continue
-        if re.search(r"(错误|语法|用词|修改|建议|说明|理由|保留|注意|表示|例如|例句|优化|类｜|批改|版本|整理)", t) and \
-           len(re.findall(r"[\u4e00-\u9fff]", t)) > 3:
-            continue
-        # 中文占比过高的行（讲解）也剔除
         zh = len(re.findall(r"[\u4e00-\u9fff]", t))
-        if zh > max(4, len(t) * 0.25):
+        eng = len(re.findall(r"[A-Za-z]", t))
+        if zh and LEAD_EXPLAIN.match(t):
             continue
+        if zh and zh * 2 >= eng:
+            continue
+        if zh:
+            # 只剪掉行内的中文注解与括号注，英文句子保留
+            t = re.sub(r"[（(][^（()）]*[\u4e00-\u9fff][^（()）]*[)）]", "", t)
+            # 只吞掉中文后面紧跟的中文标点，英文的 . ! ? 必须留着
+            t = re.sub(r"[\u4e00-\u9fff]+[：:、，,。]?", "", t)
+            t = re.sub(r"\s{2,}", " ", t).strip()
+            t = re.sub(r"^[，,、：:。\s]+", "", t)
+            t = re.sub(r"[，,、：:]\s*$", "", t)
+            if t and not t[-1] in ".!?\"'":
+                t += "."
+            if not re.search(r"[A-Za-z]{2}", t):
+                continue
         lines.append(t)
+
     text = "\n".join(lines).strip()
     text = re.sub(r"\n{3,}", "\n\n", text)
-    return text or cand
+    return text or as_text(fallback_content).strip() or cand
 
 
 @app.route("/shelf")
@@ -506,13 +648,15 @@ def shelf():
     books = []
     for e in db().execute(
             "SELECT * FROM essays WHERE corrected=1 ORDER BY id DESC").fetchall():
-        c = json.loads(e["correction"]) if e["correction"] else {}
+        c = safe_correction(e["correction"])
+        adv = as_text(c.get("version_advanced")).strip()
         books.append({
-            "id": e["id"], "title": c.get("book_title") or e["title"],
+            "id": e["id"], "title": as_text(c.get("book_title") or e["title"]),
             "date": time.strftime("%Y-%m-%d", time.localtime(e["created_at"])),
             "score": c.get("score"),
             "text": clean_book_text(c, e["content"]),
-            "advanced": (c.get("version_advanced") or "").strip(),
+            # 进阶版也可能混着讲解，同样过一遍清洗
+            "advanced": clean_book_text({"version_current": adv}),
         })
     return render_template("shelf.html", books=books)
 
@@ -980,64 +1124,63 @@ def delete_phrase():
 
 @app.route("/phrases")
 def phrase_book():
-    """短语本：自动收集所有已批改文章里的词汇与固定短语"""
+    """短语本：把每篇批改里提到的词汇、固定短语、句型全部收集起来
+
+    数据来源（全部容错，任何一条坏数据都只会被跳过，不会让页面挂掉）：
+      1. correction.vocab            —— AI 直接给出的"原表达 → 更好说法"
+      2. 逐句讲解里命中的短语/句型   —— "take up 是一个短语动词"、"句型：…"
+      3. correction.wanted_phrases   —— "我想说但不会说"的中英对照
+    """
+    items, seen = [], set()
+
+    def push(original, suggestion, note, essay_id, essay_title, kind):
+        original = as_text(original).strip()
+        suggestion = as_text(suggestion).strip()
+        note = as_text(note).strip()
+        if not original or not suggestion:
+            return
+        key = (original.lower()[:120], suggestion.lower()[:80])
+        if key in seen:
+            return
+        seen.add(key)
+        items.append({"essay_id": essay_id, "essay_title": as_text(essay_title),
+                      "original": original[:200], "suggestion": suggestion[:200],
+                      "note": note[:300], "kind": kind})
+
     rows = db().execute(
         "SELECT id, title, correction FROM essays WHERE corrected=1 ORDER BY id DESC"
     ).fetchall()
-    items, seen = [], set()
-    for e in rows:
-        if not e["correction"]:
-            continue
-        try:
-            c = json.loads(e["correction"])
-        except Exception:  # noqa: BLE001
-            continue
-        for v in c.get("vocab", []):
-            orig = (v.get("original") or "").strip()
-            sug = (v.get("suggestion") or "").strip()
-            if not orig or not sug:
-                continue
-            key = (orig.lower(), sug.lower())
-            if key in seen:
-                continue
-            seen.add(key)
-            items.append({"essay_id": e["id"], "essay_title": e["title"],
-                          "original": orig, "suggestion": sug,
-                          "note": (v.get("note") or "").strip()})
-    # 兜底：批次里 vocab 为空的文章，从逐句修改里提炼词汇对比
-    for e in rows:
-        if not e["correction"]:
-            continue
-        try:
-            c = json.loads(e["correction"])
-        except Exception:  # noqa: BLE001
-            continue
-        if c.get("vocab"):
-            continue
-        # 从讲解里补充短语（take up 是短语动词 / 句型：xxx）
-        for v in extract_phrases_from_notes(c):
-            key = (v["original"].lower(), v["suggestion"].lower()[:60])
-            if key in seen:
-                continue
-            seen.add(key)
-            items.append({"essay_id": e["id"], "essay_title": e["title"], **v})
-        for s in c.get("sentences", []):
-            o = (s.get("original") or "").strip()
-            r = (s.get("revised") or "").strip()
-            note = (s.get("note") or "").strip()
-            if not o or not r or o.lower() == r.lower():
-                continue
-            # 只在句子差别不大时（词级改动）作为"表达对比"收录
-            if abs(len(o) - len(r)) > max(25, len(o) * 0.4):
-                continue
-            key = (o.lower()[:120], r.lower()[:120])
-            if key in seen:
-                continue
-            seen.add(key)
-            items.append({"essay_id": e["id"], "essay_title": e["title"],
-                          "original": o, "suggestion": r, "note": note})
-    return render_template("phrases.html", items=items)
 
+    for e in rows:
+        c = safe_correction(e["correction"])
+        if not c:
+            continue
+        title = c.get("book_title") or e["title"]
+
+        # 1) AI 给出的 vocab
+        for v in as_list(c.get("vocab")):
+            if isinstance(v, dict):
+                push(v.get("original") or v.get("word") or v.get("phrase"),
+                     v.get("suggestion") or v.get("better") or v.get("revised"),
+                     v.get("note") or v.get("explain") or "",
+                     e["id"], title, "word")
+            elif isinstance(v, str) and len(v) < 80:
+                push(v, "（见原句讲解）", "", e["id"], title, "word")
+
+        # 2) 逐句讲解里的短语 / 句型
+        for v in extract_phrases_from_notes(c):
+            kind = "pattern" if v["original"].startswith("句型") else "phrase"
+            push(v["original"], v["suggestion"], v["note"], e["id"], title, kind)
+
+        # 3) "我想说但不会说" 的中英对照
+        for w in as_list(c.get("wanted_phrases")):
+            if isinstance(w, dict):
+                push(w.get("english") or w.get("en"),
+                     w.get("chinese") or w.get("zh"),
+                     w.get("note") or "", e["id"], title, "wanted")
+
+    kinds = {"phrase": "短语 / 句型", "word": "词汇", "wanted": "我想说"}
+    return render_template("phrases.html", items=items, kinds=kinds)
 
 
 @app.route("/api/update", methods=["POST"])
