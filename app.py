@@ -33,7 +33,7 @@ def log(*args):
             pass
 
 
-VERSION = "3.12"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.13"   # 页脚显示，用于确认正在运行的是新版本
 
 
 def pick_port(default=5000, span=20):
@@ -1086,9 +1086,13 @@ def shelf():
             "SELECT * FROM essays WHERE corrected=1 ORDER BY id DESC").fetchall():
         c = safe_correction(e["correction"])
         adv = as_text(c.get("version_advanced")).strip()
-        annotated, _, clean_orig, _cards = build_annotated(c, {}) if c else ("", [], "", [])
+        annotated, _, clean_orig, cards = build_annotated(c, {}) if c else ("", [], "", [])
+        # 完美文章：修改后的整篇，改动处标绿（与详情页同一套数据/格式）
+        perfect_html = " ".join((x.get("rev_html") or x.get("orig_html") or "").strip()
+                                for x in (cards or [])).strip()
+        perfect_html = re.sub(r"[ \t]{2,}", " ", perfect_html)
         # 逐句卡片：与「我的文章」详情页同一套渲染（用户要求两处格式一致）
-        cards = _cards or []
+        cards = cards or []
         clean_text = clean_book_text(c, e["content"])
         # 导入的文章常没有 version_current，clean_book_text 会退回用户粘贴的
         # 「原文+删除线+讲解」混杂文本。这时改用逐句拼出来的干净原文。
@@ -1101,8 +1105,9 @@ def shelf():
             "text": clean_text,
             # 进阶版也可能混着讲解，同样过一遍清洗
             "advanced": clean_book_text({"version_current": adv}),
-            # 完整批改：逐句卡片（与详情页格式一致）+ 行内版兜底
+            # 完整批改：完美文章（改动处可点）+ 逐句卡片（与详情页一致）
             "annotated": annotated,
+            "perfect": perfect_html,
             "cards": cards,
         })
     return render_template("shelf.html", books=books)
@@ -1179,6 +1184,12 @@ def essay(essay_id):
     annotated, annot_meta, clean_orig, sent_cards = ("", [], "", [])
     if correction:
         annotated, annot_meta, clean_orig, sent_cards = build_annotated(correction, qa_map)
+    # 完美文章：把各句的「修改视图」连成一整篇——正文是改对的，
+    # 本次改动的地方标绿，点击弹出该句的详情讲解
+    perfect_html = " ".join(
+        (x.get("rev_html") or x.get("orig_html") or "").strip()
+        for x in sent_cards).strip()
+    perfect_html = re.sub(r"[ \t]{2,}", " ", perfect_html)
     # 当前水平版 / 进阶版统一走清洗，避免把"原文+讲解"大杂烩直接端出来
     clean_cur = clean_book_text(correction, e["content"]) if correction else ""
     # 没有 version_current（粘贴导入的常见情况）→ 用逐句拼出来的干净原文
@@ -1190,6 +1201,7 @@ def essay(essay_id):
     return render_template("essay.html", e=e, c=correction,
                            annotated=annotated, annot_meta=annot_meta,
                            sent_cards=sent_cards,
+                           perfect_html=perfect_html,
                            qa_map=qa_map, clean_cur=clean_cur, clean_adv=clean_adv)
 
 
@@ -1729,6 +1741,65 @@ PARSE_PROMPT = """你是一位英语写作老师的数据整理助手。下面�
 """
 
 
+def _fix_parsed(data, raw):
+    """AI 整理结果的后处理守卫（parse_import / try_auto_parse 共用）。
+
+    实测问题：
+      ① AI 把 original 写成了干净句（和 revised 一样），页面上出现
+         「错误」类型却原文=修改、没有任何批改痕迹；
+      ② vocab 漏收（「🌱 最值得带走的表达」清单没进短语本）。
+    """
+    if not isinstance(data, dict):
+        return data
+    import difflib as _dl
+
+    # ① original 被写成干净句 → 从原始粘贴文本里回捞学生原句
+    raw_units = [u.strip() for u in re.split(r"(?<=[.!?])\s+|\n+", as_text(raw))
+                 if len(u.strip()) >= 12 and re.search(r"[A-Za-z]{3}", u.strip())]
+    for s in as_list(data.get("sentences")):
+        if not isinstance(s, dict):
+            continue
+        typ = as_text(s.get("type")) or "error"
+        orig, rev = as_text(s.get("original")), as_text(s.get("revised"))
+        if typ not in ("error", "optimize", "complex_kept"):
+            continue
+        if rev and tidy_sentence(orig) != tidy_sentence(rev):
+            continue          # 正常条目：原句与改句不同
+        # 异常条目：尝试回捞
+        rl = re.sub(r"\W+", "", rev.lower() or orig.lower())
+        best, best_r = "", 0.0
+        for u in raw_units:
+            r = _dl.SequenceMatcher(None, re.sub(r"\W+", "", u.lower()), rl).ratio()
+            if r > best_r:
+                best, best_r = u, r
+        if best and best_r > 0.55 and tidy_sentence(best) != tidy_sentence(rev):
+            s["original"] = best          # 从原始文本找回的学生原句
+        else:
+            # 找不回 → 至少别标「错误」却没有任何改动
+            s["type"] = "good"
+            s["revised"] = ""
+
+    # ② vocab 为空 → 规则抽取「最值得带走」清单
+    if not as_list(data.get("vocab")):
+        v = []
+        raw_txt = as_text(raw)
+        m = re.search(r"最值得[^\n]*", raw_txt)
+        sec = raw_txt[m.start():] if m else raw_txt
+        for vm in re.finditer(
+                r"(?:^|\n)\s*\d{1,2}[.、)]\s*([A-Za-z][^\n]{2,70})\s*\n+\s*([^\n]+)", sec):
+            eng, zh = vm.group(1).strip().strip('"“”'), vm.group(2).strip()
+            if eng and re.search(r"[\u4e00-\u9fff]", zh):
+                v.append({"original": eng[:60], "suggestion": zh[:80], "note": ""})
+        if v:
+            data["vocab"] = v
+
+    # ③ 计数与实际条目一致
+    sents = as_list(data.get("sentences"))
+    data["error_count"] = len([s for s in sents if isinstance(s, dict) and s.get("type") == "error"])
+    data["optimize_count"] = len([s for s in sents if isinstance(s, dict) and s.get("type") == "optimize"])
+    return data
+
+
 @app.route("/api/parse_import/<int:essay_id>", methods=["POST"])
 def parse_import(essay_id):
     """把导入的原始批改文本用 AI 整理成错题集标准格式"""
@@ -1750,6 +1821,7 @@ def parse_import(essay_id):
     data.setdefault("sentences", [])
     data.setdefault("vocab", [])
     data.setdefault("wanted_phrases", [])
+    data = _fix_parsed(data, e["raw_import"] or e["content"] or "")
     data["imported"] = True  # 标记：此记录来自外部对话
     db().execute(
         "UPDATE essays SET correction=?, corrected=1 WHERE id=?",
@@ -2422,6 +2494,7 @@ def try_auto_parse(essay_id, content):
         return False
     for k in ("sentences", "vocab", "wanted_phrases"):
         data.setdefault(k, [])
+    data = _fix_parsed(data, content)
     data["imported"] = True
     db().execute(
         "UPDATE essays SET correction=?, corrected=1 WHERE id=?",

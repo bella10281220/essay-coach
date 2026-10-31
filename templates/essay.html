@@ -39,21 +39,19 @@
 
 {% if c %}
 <div class="tabs">
-  <button class="active" onclick="showTab('full',this)">📝 全文批改</button>
+  <button class="active" onclick="showTab('perfect',this)">✨ 完美文章</button>
+  <button onclick="showTab('sent',this)">🧩 逐句卡片</button>
   <button onclick="showTab('cur',this)">当前水平版</button>
   <button onclick="showTab('adv',this)">进阶版</button>
   <button onclick="showTab('wished',this)">我想说的话</button>
 </div>
 
-<!-- ═══ 全文批改（默认）：逐句卡片——原文(错处标红) → 修改(改对标绿) + 讲解 ═══ -->
-<div id="tab-full">
+<!-- ═══ 完美文章（默认）：修改后的完整文章，改动的词标绿可点 ═══ -->
+<div id="tab-perfect">
   <div class="card">
     <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
       <div style="font-size:13px;color:var(--sub)">
-        <span class="lg"><i class="dot del"></i>红底 = 改掉的地方</span>
-        <span class="lg"><i class="dot ins-error"></i>改后的词 = 改正后的</span>
-        <span class="lg"><i class="dot ins-optimize"></i>橙框 = 可优化的建议</span>
-        <span class="lg">点击彩色文字可追问</span>
+        <span class="lg"><i class="dot ins-error"></i>绿色 = 本次修改的地方，点击查看这句的讲解</span>
       </div>
       <div>
         <span class="badge score">{{ c.score }}/10</span>
@@ -61,6 +59,27 @@
         <span class="badge opt">可优化 {{ c.optimize_count }}</span>
       </div>
     </div>
+    <div class="essay-body">{{ perfect_html|safe }}</div>
+  </div>
+
+  <!-- 点击标注后显示的详情 + 追问 -->
+  <div class="card" id="detail" style="display:none;border-left:4px solid var(--green)">
+    <div id="detail-body"></div>
+    <div style="margin-top:12px;border-top:1px dashed var(--line);padding-top:12px">
+      <strong style="font-size:14px">对这句还有疑问？直接问：</strong>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <input type="text" id="qin" placeholder="例如：为什么不能用现在完成时？"
+               onkeydown="if(event.key==='Enter')sendQ()">
+        <button class="btn small" id="qbtn" onclick="sendQ()">提问</button>
+      </div>
+      <div id="qlist" style="margin-top:10px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 逐句卡片 ═══ -->
+<div id="tab-sent" style="display:none">
+  <div class="card">
     {% if c.summary %}<p style="color:var(--sub);font-size:14px;margin:0 0 14px">{{ c.summary }}</p>{% endif %}
 
     {% for s in sent_cards %}
@@ -95,20 +114,6 @@
       {% endfor %}
     </table>
     {% endif %}
-  </div>
-
-  <!-- 点击标注后显示的详情 + 追问 -->
-  <div class="card" id="detail" style="display:none;border-left:4px solid var(--green)">
-    <div id="detail-body"></div>
-    <div style="margin-top:12px;border-top:1px dashed var(--line);padding-top:12px">
-      <strong style="font-size:14px">对这句还有疑问？直接问：</strong>
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <input type="text" id="qin" placeholder="例如：为什么不能用现在完成时？"
-               onkeydown="if(event.key==='Enter')sendQ()">
-        <button class="btn small" id="qbtn" onclick="sendQ()">提问</button>
-      </div>
-      <div id="qlist" style="margin-top:10px"></div>
-    </div>
   </div>
 </div>
 
@@ -203,7 +208,7 @@ var cur = -1;
 function showTab(id, btn){
   document.querySelectorAll('.tabs button').forEach(function(b){b.classList.remove('active');});
   btn.classList.add('active');
-  ['full','cur','adv','wished'].forEach(function(t){
+  ['perfect','sent','cur','adv','wished'].forEach(function(t){
     document.getElementById('tab-'+t).style.display = t===id ? '' : 'none';
   });
 }
