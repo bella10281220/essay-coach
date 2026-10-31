@@ -38,14 +38,13 @@
       <tr>
         <td>
           <span class="en">{{ v.original }}</span>
+          {% if v.same_as is defined and v.same_as %}
+          <span class="eq">＝</span>
+          <span class="en alt">{{ v.same_as }}</span>
+          {% endif %}
           {% if v.contrast %}
           <div class="rel contrast" title="容易混的两个说法，注意区别">
             <span class="vs">对比</span>{{ v.contrast }}
-          </div>
-          {% endif %}
-          {% if v.same_as is defined and v.same_as %}
-          <div class="rel same" title="意思相同，可以替换">
-            <span class="vs vs-same">同义</span>{{ v.same_as }}
           </div>
           {% endif %}
         </td>
@@ -93,6 +92,8 @@
 .chip.on{background:var(--green);border-color:var(--green);color:#fff}
 .n{font-size:12px;color:#fff;background:var(--green);border-radius:99px;padding:0 7px;margin-left:4px;vertical-align:2px}
 .en{color:var(--green-d);font-weight:600;word-break:break-word}
+.en.alt{color:#4a7fa8;font-weight:500}
+.eq{color:#9bb;margin:0 6px;font-size:13px}
 .rel{margin-top:5px;font-size:12px;color:var(--sub);padding:3px 8px;border-radius:0 6px 6px 0;border-left:3px solid}
 .rel.contrast{background:#fdf6e4;border-color:#e9b970}
 .rel.same{background:#eaf4fb;border-color:#79b8dc}

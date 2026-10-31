@@ -149,12 +149,14 @@
 .mk{cursor:pointer;border-radius:3px;transition:.15s}
 .mk.plain{border-bottom:1px dotted var(--sub)}
 .mk.plain:hover{background:var(--green-bg)}
-.mk:hover{filter:brightness(.92)}
-.mk.del{color:#c96a6a;text-decoration:line-through;text-decoration-thickness:2px;background:#fbeeec;padding:0 2px}
-.mk.ins{font-weight:600;padding:0 3px;border-bottom:2px solid transparent}
-.mk.ins.error{color:#3d8f6a;background:#e9f6ef;border-bottom-color:#7fc8a9}
-.mk.ins.optimize{color:#b07a1f;background:#fdf6e4;border-bottom-color:#e9b970}
-.mk.ins.complex_kept{color:#2f7fae;background:#eaf4fb;border-bottom-color:#79b8dc}
+.mk:hover{filter:brightness(.94)}
+/* 删除线：只在线条上标红，不加内边距/背景块，避免把一个词拆成两截 */
+.mk.del{color:#c96a6a;text-decoration:line-through;
+        text-decoration-color:#d98a8a;text-decoration-thickness:2px}
+.mk.ins{font-weight:600;padding:0}
+.mk.ins.error{color:#2f8f63;background:linear-gradient(transparent 62%, #d8f0e3 62%)}
+.mk.ins.optimize{color:#a9761a;background:linear-gradient(transparent 62%, #f7ecd2 62%)}
+.mk.ins.complex_kept{color:#2f7fae;background:linear-gradient(transparent 62%, #ddedf8 62%)}
 .lg{margin-right:14px;display:inline-flex;align-items:center;gap:5px}
 .dot{width:12px;height:12px;border-radius:3px;display:inline-block}
 .dot.del{background:#fbeeec;border-top:2px solid #c96a6a}

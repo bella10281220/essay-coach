@@ -539,15 +539,72 @@ def is_sentence(eng):
     return False
 
 
+_IRREG = {
+    "came": "come", "went": "go", "did": "do", "had": "have", "was": "be",
+    "were": "be", "saw": "see", "took": "take", "taken": "take", "made": "make",
+    "got": "get", "gave": "give", "given": "give", "found": "find", "felt": "feel",
+    "kept": "keep", "left": "leave", "meant": "mean", "met": "meet", "paid": "pay",
+    "said": "say", "sold": "sell", "sent": "send", "spent": "spend", "told": "tell",
+    "thought": "think", "understood": "understand", "wrote": "write", "written": "write",
+    "read": "read", "heard": "hear", "held": "hold", "brought": "bring",
+    "bought": "buy", "built": "build", "caught": "catch", "chose": "choose",
+    "drove": "drive", "driven": "drive", "ate": "eat", "eaten": "eat",
+    "fell": "fall", "fallen": "fall", "fought": "fight", "flew": "fly",
+    "forgot": "forget", "forgotten": "forget", "knew": "know", "known": "know",
+    "lost": "lose", "ran": "run", "sat": "sit", "slept": "sleep", "spoke": "speak",
+    "spoken": "speak", "stood": "stand", "swam": "swim", "wore": "wear",
+    "worn": "wear", "won": "win", "began": "begin", "begun": "begin",
+    "broke": "break", "broken": "break", "drank": "drink", "drank": "drink",
+    "rang": "ring", "sang": "sing", "sunk": "sink", "threw": "throw",
+    "thrown": "throw", "woke": "wake", "woken": "wake",
+}
+
+
+def _lemma(w):
+    """粗糙词形归并：working / works / worked / work 都 → work。
+
+    只为「判断两个短语是不是同一个意思」，不追求语言学正确。
+    """
+    w = w.lower().strip(".,!?;:")
+    if w.endswith("'s") or w.endswith("\u2019s"):
+        w = w[:-2]
+    if w in _IRREG:
+        return _IRREG[w]
+    for suf, rep in (("ies", "y"), ("ying", "y"), ("ing", ""), ("ied", "y"),
+                     ("ed", ""), ("es", ""), ("s", "")):
+        if len(w) > len(suf) + 2 and w.endswith(suf):
+            w = w[:-len(suf)] + rep
+            break
+    if len(w) > 3 and w[-1] == w[-2] and w[-1] not in "aeiou":
+        w = w[:-1]          # stopping → stop
+    return w
+
+
 def same_lexeme(a, b):
     """两个短语是不是"同一个词的变形"（don't want vs didn't want）。
 
-    规则：去掉助动词/否定词后，实词完全一致 → 只是时态或否定变化，不算新短语。
+    规则：去掉助动词/否定词、把缩写展开（I'm → I am）、把词形归并
+    （working → work）之后，实词完全一致 → 只是时态/体/否定变化，
+    在短语本里应当合并成一条，而不是各占一行。
     """
+    # 缩写先展开：I'm → I am、don't → do not
+    def expand(s):
+        s = as_text(s).lower()
+        s = s.replace("\u2019", "'")
+        s = re.sub(r"\bi'm\b", "i am", s)
+        s = re.sub(r"\b(\w+)n't\b", r"\1 not", s)
+        s = re.sub(r"\b(\w+)'re\b", r"\1 are", s)
+        s = re.sub(r"\b(\w+)'ve\b", r"\1 have", s)
+        s = re.sub(r"\b(\w+)'ll\b", r"\1 will", s)
+        s = re.sub(r"\b(\w+)'d\b", r"\1 would", s)
+        return s
+
     def core(s):
-        ws = [w.lower().strip(".,!?;:") for w in re.split(r"\s+", s or "") if w]
-        return [w for w in ws if w not in AUX_WORDS and w not in
-                ("don't", "doesn't", "didn't", "isn't", "aren't", "wasn't", "weren't")]
+        ws = [w for w in re.split(r"\s+", expand(s)) if w]
+        ws = [w for w in ws if w not in AUX_WORDS and w not in
+              ("not", "do", "does", "did", "am", "is", "are", "was", "were",
+               "be", "been", "being")]
+        return [_lemma(w) for w in ws]
 
     ca, cb = core(a), core(b)
     if not ca or not cb:
@@ -1274,38 +1331,104 @@ def tidy_sentence(s):
     return s.strip(" ,;:")
 
 
-def inline_diff_words(original, revised):
-    """字符级 diff：返回 (kind, text) 片段列表，kind: same/del/ins
+_WORD_RE = re.compile(r"[A-Za-z0-9'\u2019]+(?:[.,;:!?]+)?")
+_WORD_SP_RE = re.compile(r"(\s*)([A-Za-z0-9'\u2019]+(?:[.,;:!?]+)?)")
 
-    按**字符**比对而不是按空格切词。按词切会把 \"didn t\" / \"yesterday。\"
-    这种粘连片段整段划掉，页面上就变成 \"But i didn t didn't do it yesterday。
-    yesterday.\" 一堆重复。字符级能把改动精确收缩到 \"work → working\" 这一处。
+
+def _words(t):
+    """按词切（标点跟词走），保留原样不做小写。"""
+    return _WORD_RE.findall(t)
+
+
+def _words_sp(t):
+    """按词切，但**保留每个词前面的空白**。
+
+    渲染层不再需要猜「这里该不该补空格」——空白是原文的一部分，
+    跟着词一起走，词内碎片天然紧贴，词与词天然分开。
+    """
+    return [(m.group(1), m.group(2)) for m in _WORD_SP_RE.finditer(t)]
+
+
+def inline_diff_words(original, revised):
+    """词级 diff + 字符级精修：返回 (kind, text) 片段列表。
+
+    纯字符 diff 会切出 "e|English" 这种半截单词，页面上没法读；
+    纯词 diff 又会把同一个词内部的改动整词划掉。所以两步走：
+      1. 按「词」比对（逐字相同才算相同），找出整词级的改动段
+      2. 同位置被改的 old/new 段再做字符比对，只标出改掉的字母
+         "iI" → "I" 只划掉多余的 i，"housme" → "home" 只划掉 s
+
+    空格规则（简单且不会出错）：**每换一个词就补一个空格**，
+    词内部的 同/删/增 一律紧贴。这样在页面上读起来就是
+    "改掉的那个字母被划掉、新字母紧跟在后面"，其余正文原样。
     """
     o, r = tidy_sentence(original), tidy_sentence(revised)
-    if o == r:
-        return [("same", o)]
-    sm = difflib.SequenceMatcher(None, o, r, autojunk=False)
-    segs = []
+    ow, rw = _words(o), _words(r)
+    sm = difflib.SequenceMatcher(None, ow, rw, autojunk=False)
+
+    def refine(a, b):
+        """a → b 的字符级精修，返回词内片段列表（不含空白）。"""
+        if a == b:
+            return [("same", a)]
+        p = 0
+        while p < len(a) and p < len(b) and a[p] == b[p]:
+            p += 1
+        q = 0
+        while (q < len(a) - p and q < len(b) - p
+               and a[len(a) - 1 - q] == b[len(b) - 1 - q]):
+            q += 1
+        if p == 0 and q == 0:
+            return [("del", a), ("ins", b)]
+        segs = []
+        if p:
+            segs.append(("same", a[:p]))
+        if len(a) - p - q > 0:
+            segs.append(("del", a[p:len(a) - q]))
+        if len(b) - p - q > 0:
+            segs.append(("ins", b[p:len(b) - q]))
+        if q:
+            segs.append(("same", a[len(a) - q:]))
+        return segs
+
+    # 先攒成「词块」：每个词块 = 若干片段 + 标记它是不是一个新词
+    blocks = []          # [(is_new_word, [(kind, text), ...])]
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
-            segs.append(("same", o[i1:i2]))
+            for k in range(i1, i2):
+                blocks.append((True, [("same", ow[k])]))
         elif tag == "delete":
-            segs.append(("del", o[i1:i2]))
+            for k in range(i1, i2):
+                blocks.append((True, [("del", ow[k])]))
         elif tag == "insert":
-            segs.append(("ins", r[j1:j2]))
+            for k in range(j1, j2):
+                blocks.append((True, [("ins", rw[k])]))
         else:
-            segs.append(("del", o[i1:i2]))
-            segs.append(("ins", r[j1:j2]))
+            olds, news = ow[i1:i2], rw[j1:j2]
+            if len(olds) == len(news):
+                # 同一个词被改：词内片段紧贴，整体算一个新词
+                for a, b in zip(olds, news):
+                    blocks.append((True, refine(a, b)))
+            else:
+                # 删几个词 + 插几个词：各自是一个词块
+                for a in olds:
+                    blocks.append((True, [("del", a)]))
+                for b in news:
+                    blocks.append((True, [("ins", b)]))
 
-    # 纯空白 / 纯标点 的变化不划线，直接按新文本显示
+    # 纯标点的改动不划线（"long,." → "long." 不该划）
+    blocks = [(nw, [(("same" if (k != "same" and not re.search(r"[A-Za-z0-9]", t)) else k), t)
+                    for k, t in segs if t])
+              for nw, segs in blocks]
+    blocks = [(nw, segs) for nw, segs in blocks if segs]
+
+    # 拼成最终片段表：词块之间补空格，词块内部紧贴
     out = []
-    for kind, txt in segs:
-        if kind != "same" and not re.search(r"[A-Za-z0-9]", txt):
-            out.append(("same", txt))
-            continue
-        out.append((kind, txt))
+    for n, (is_new, segs) in enumerate(blocks):
+        if n > 0:
+            out.append(("same", " "))
+        out.extend(segs)
 
-    # 相邻同类合并，减少 span 数量
+    # 合并相邻同类片段，减少 span 数量
     merged = []
     for kind, txt in out:
         if merged and merged[-1][0] == kind:
@@ -1338,15 +1461,17 @@ def build_annotated(c, qa_map):
             segs = inline_diff_words(orig, rev)
         # 拼接句子 HTML：只有 error（真正用错）才划掉；
         # optimize / complex_kept 原词保留不划线，彩色字给出更好表达
+        # 片段自带前导空白，直接拼即可——不做任何空格猜测
         html_parts = []
         for kind, txt in segs:
+            if not txt:
+                continue
             esc = html_mod.escape(txt)
             if kind == "del" and typ == "error":
                 html_parts.append(f'<span class="mk del" onclick="showDetail({i})">{esc}</span>')
             elif kind == "ins":
                 html_parts.append(f'<span class="mk ins {typ}" onclick="showDetail({i})">{esc}</span>')
             elif kind == "del":
-                # 非 error 的原词：正常显示，仍可点击看讲解
                 html_parts.append(f'<span class="mk plain" onclick="showDetail({i})">{esc}</span>')
             else:
                 html_parts.append(esc)
@@ -1365,10 +1490,13 @@ def build_annotated(c, qa_map):
     for i, p in enumerate(parts):
         if not p:
             continue
-        if html and not re.search(r"[\s>]$", html):
-            html += " "
+        # 句间补空格：上一段可能以 </span> 结尾，用「去标签后的可见字符」判断
+        if html:
+            visible = re.sub(r"<[^>]+>", "", html)
+            if not visible.endswith((" ", "\n")):
+                html += " "
         html += p
-    html = re.sub(r"\s{2,}", " ", html).strip()
+    html = re.sub(r"[ \t]{2,}", " ", html).strip()
 
     # 干净原文：句子去重 + 补句末标点
     seen, deduped = set(), []
@@ -1700,25 +1828,89 @@ def phrase_book():
                      w.get("chinese") or w.get("zh"),
                      w.get("note") or "", e["id"], title, "wanted")
 
-    # 同义 / 对比 关系成对登记：A 标「同义 B」，B 也自动标「同义 A」，
-    # 省得靠讲解里两句话各自被抓到才连上
+    # ── 同义合并：互相同义的条目并成一条，只留一行 ──
+    # 用户反复提的问题：`I work for` 和 `I'm working for` 各占一行、
+    # 各自挂一个「同义 XX」，看着像两条不同的东西。实际它们是同一件事。
+    # 做法：把「同义」关系看成无向连通图，用并查集把互相连通的条目并成
+    # 一组，每组只保留一条（优先保留哪个后面再定），其余并进它的「同义说法」。
+    parent = list(range(len(items)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    by_lower = {}
+    for n, it in enumerate(items):
+        by_lower.setdefault(it["original"].lower(), []).append(n)
+
+    for n, it in enumerate(items):
+        for other in [x.strip() for x in re.split(r"[／/]", it["same_as"]) if x.strip()]:
+            for m in by_lower.get(other.lower(), []):
+                if items[m]["kind"] == it["kind"]:
+                    union(n, m)
+            # 仅大小写/时态差异（I work for / I'm working for）也算同义
+            for m, jt in enumerate(items):
+                if jt["kind"] == it["kind"] and same_lexeme(jt["original"], other):
+                    union(n, m)
+
+    # 分组 → 每组合成一条
+    groups_idx = {}
+    for n in range(len(items)):
+        groups_idx.setdefault(find(n), []).append(n)
+
+    kept = []
+    for members in groups_idx.values():
+        members.sort(key=lambda n: (len(items[n]["original"]), n))
+        head = items[members[0]]
+        merged = dict(head)
+        merged["same_as"] = ""
+        merged["sources"] = list(head["sources"])
+        merged["note"] = head["note"]
+        for n in members[1:]:
+            o = items[n]
+            # 另一个说法并进「同义」，不再单独占一行
+            alts = [x for x in re.split(r"[／/]", merged["same_as"]) if x.strip()]
+            if o["original"].lower() != head["original"].lower() \
+                    and not any(x.strip().lower() == o["original"].lower() for x in alts):
+                merged["same_as"] = (merged["same_as"] + " ／ " + o["original"]).strip(" ／")
+            # 释义（中文）取最完整的那条，不重复
+            sug = o["suggestion"]
+            if sug and sug != "（见讲解）":
+                cur = [p.strip() for p in re.split(r"[／/]", merged["suggestion"]) if p.strip()]
+                if not any(sug in p or p in sug for p in cur if p != "（见讲解）"):
+                    if merged["suggestion"] in ("（见讲解）", ""):
+                        merged["suggestion"] = sug
+                    else:
+                        merged["suggestion"] = merged["suggestion"] + " ／ " + sug
+            # 讲解：只留最相关的两句，避免一大坨
+            if o["note"] and o["note"] not in merged["note"]:
+                merged["note"] = (merged["note"] + "　▸ " + o["note"]) if merged["note"] else o["note"]
+            if not any(x["essay_id"] == s["essay_id"] for x in merged["sources"] for s in [x]):
+                for s in o["sources"]:
+                    if not any(x["essay_id"] == s["essay_id"] for x in merged["sources"]):
+                        merged["sources"].append(s)
+            if o.get("contrast") and o["contrast"] not in merged["contrast"]:
+                merged["contrast"] = (merged["contrast"] + " ／ " + o["contrast"]).strip(" ／")
+        merged["len"] = len(members)
+        kept.append(merged)
+    items = kept
+
+    # 讲解瘦身：一条只讲一件事，超过两句就截断（用户反馈「太占地方」）
     for it in items:
-        for tag, fld in (("same", "same_as"), ("contrast", "contrast")):
-            others = [x.strip() for x in re.split(r"[／/]", it[fld]) if x.strip()]
-            for other in others:
-                for jt in items:
-                    if jt is it:
-                        continue
-                    same = (jt["original"].lower() == other.lower())
-                    if not same and tag == "same":
-                        same = same_lexeme(jt["original"], other)
-                    if not same:
-                        continue
-                    cur = [x.strip() for x in re.split(r"[／/]", jt[fld]) if x.strip()]
-                    if not any(it["original"].lower() == x.lower() for x in cur):
-                        if jt[fld].strip() == it["original"].strip():
-                            continue
-                        jt[fld] = (jt[fld] + " ／ " + it["original"]).strip(" ／ ")[:200]
+        note = as_text(it.get("note"))
+        note = re.split(r"　▸|(?<=[。！？])\s*(?=[A-Z])", note)
+        note = [x.strip() for x in note if x.strip()]
+        if len(note) > 2:
+            note = note[:2]
+        it["note"] = "　▸ ".join(note)[:220]
+        it["same_as"] = it["same_as"][:120]
 
     # 分类：句型在前（最常看），然后短语、词汇、我想说
     order = {"pattern": 0, "phrase": 1, "word": 2, "wanted": 3}
