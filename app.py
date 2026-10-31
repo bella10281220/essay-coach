@@ -33,7 +33,7 @@ def log(*args):
             pass
 
 
-VERSION = "3.7"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.8"   # 页脚显示，用于确认正在运行的是新版本
 
 
 def pick_port(default=5000, span=20):
@@ -434,44 +434,67 @@ STOP_ENG = {
 }
 
 # ==================================================================
-#  短语 / 句型提取引擎
-#  目标（来自用户反复强调的要求）：
-#   1. 一条讲解里出现的**每一个**短语都要收：correct it … revise it 也要各收一条
-#   2. 纯单词（Soul）不算短语 → 归到「词汇」
-#   3. "should 后面直接接动词原形，不加 to" → 这是**句型/规则**，不是短语
-#   4. "could hear it 强调…；pay attention to it 强调…" → 对比型，两条都要收，
-#      并互相标出「区别」
+#  短语 / 句型提取引擎（v3.8 重写）
+#
+#  设计原则（对着用户反馈逐条定的）：
+#   1. 一条讲解里出现几个短语就收几条 —— correct it … revise it 各一条
+#   2. 纯单词（Soul）不算短语 → 归「词汇」
+#   3. "should 后面直接接动词原形" → 句型/规则
+#   4. "A 强调…；B 强调…" → 两条都收，并互相标「对比」
+#   5. **不抓语法变形对**：don't want → didn't want 只是时态变化，
+#      同一词根的"原形 vs 变形"不算新短语（这是上一版的最大噪音源）
+#   6. **不按空格兜底切片**：上一版会把 "studying takes a lot of time"
+#      切成 "studying takes a lot" + "of time" 两条垃圾 → 兜底已删除
+#   7. 完整句子不是短语："It was ten PM when I came back home" 不收
 # ==================================================================
 
-# 中文里的"讲解连接词"，用来把一段讲解切成"短语 → 解释"的小单元
-SPLIT_MARKS = r"[。；;！!？?\n]"
-
-# 句型 / 语法规则：中文为主、描述结构，不是某个具体短语
+# 句型 / 语法规则的信号词（中文描述结构，不是某个具体短语）
 PATTERN_HINTS = re.compile(
     r"(后面|前面|之后|之前|必须|一定|不能|不要|不加|要加|直接接|原形|"
     r"词形|复数|单数|时态|主谓|倒装|从句|定语|状语|虚拟|被动|不规则|"
-    r"固定用法是|规则是|结构是)")
+    r"固定用法是|规则是|结构是|保留了你|的表达方式)")
+
+# 显式句型："句型：某件事 + takes + 时间"
 PAT_PATTERN = re.compile(r"句型\s*[:：]\s*([^\n。；]{2,100})")
 
 # "take up 是一个短语动词，表示开始从事某项爱好"
 PAT_WORD = re.compile(
-    r"([A-Za-z][A-Za-z'\-]*(?:[ \t]+[A-Za-z][A-Za-z'\-]*){0,5})"
+    r"([A-Za-z][A-Za-z'\-]*(?:[ \t]+[A-Za-z][A-Za-z'\-]*){0,4})"
     r"\s*(?:是一个|是|表示|意思是|意为|指的是|用来表示|即|就是指)\s*(.+)$")
 
-# "come back home 中的 home 前面通常不加 to" → 短语在引号/中文前
-PAT_QUOTED = re.compile(
-    r"([A-Za-z][A-Za-z'\- ]{2,50}?)\s*(?:中的|里的|这个|这种|当中)")
-
-# "decide to do something：决定做某事" → 英文冒号中文
-PAT_COLON = re.compile(
-    r"([A-Za-z][A-Za-z'\- ]{1,50}?)\s*[:：]\s*([^\n。；]{1,80})")
-
 # "Soul 是单词"
-PAT_IS_WORD = re.compile(r"^\s*(?:是一个|是|不是)?\s*(?:单词|词|词汇|短语)(?:\s*[，,、]?\s*(?:不是短语|不是词|而非短语|而不是短语))?\s*$")
+PAT_IS_WORD = re.compile(
+    r"^\s*(?:一个|一种|是|不是)?\s*(?:单词|词|词汇|短语)"
+    r"(?:\s*[，,、]?\s*(?:不是短语|不是词|而非短语|而不是短语))?\s*$")
 
-# 对比型："could hear it 强调…；pay attention to it 强调…"
-# 先在「；」处切成两半，再各自匹配
+# "decide to do something：决定做某事"
+PAT_COLON = re.compile(r"([A-Za-z][A-Za-z'\- ]{1,50}?)\s*[:：]\s*([^\n。；]{1,80})")
+
+# "come back home 中的 home 前面通常不加 to"
+PAT_QUOTED = re.compile(r"([A-Za-z][A-Za-z'\- ]{2,50}?)\s*(?:中的|里的|当中)")
+
+# 同义推荐："…，revise it 也可以"
+PAT_ALSO = re.compile(
+    r"([A-Za-z][A-Za-z'\-]*(?:[ \t]+[A-Za-z][A-Za-z'\-]*){1,4})"
+    r"\s*(?:也可以|也行|同样可用|更自然|更地道)")
+# "…，也可以说 I work for" —— 短语在后
+PAT_ALSO2 = re.compile(
+    r"(?:也可以说|也可以写|也能说|或者说|还可以用)\s*"
+    r"([A-Za-z][A-Za-z'\-]*(?:[ \t]+[A-Za-z][A-Za-z'\-]*){1,4})")
+
 CONTRAST_VERB = r"(?:强调|表示|指的是|意思是|侧重|突出|表达的是)"
+
+# 句子里的"连接词"，出现就说明这是一整句而不是短语
+SENTENCE_HINT = re.compile(
+    r"\b(when|while|because|although|though|which|that|if|so that|"
+    r"but|and then|after|before)\b", re.I)
+
+# 时态/否定/单复数变化对 —— 这类"变形"不算新短语
+AUX_WORDS = {
+    "be", "am", "is", "are", "was", "were", "do", "does", "did", "done",
+    "have", "has", "had", "not", "will", "would", "can", "could", "should",
+    "may", "might", "must", "shall", "to",
+}
 
 
 def _norm_phrase(eng):
@@ -481,7 +504,6 @@ def _norm_phrase(eng):
         return ""
     if eng.lower() in STOP_ENG:
         return ""
-    # 至少 2 个字母才算词
     if len(re.findall(r"[A-Za-z]", eng)) < 2:
         return ""
     return eng
@@ -493,24 +515,62 @@ def is_phrase(eng):
     if not eng:
         return False
     if re.search(r"[+＋]", eng):
-        return False           # 句型模板
+        return False
     words = [w for w in re.split(r"[\s\-]+", eng) if w]
     if len(words) >= 2:
         return True
-    # 单个词，但带撇号/连字符的固定形式（don't / well-known）算短语
     return bool(re.search(r"['\-]", eng)) and len(eng) > 3
+
+
+def is_sentence(eng):
+    """判断一段英文是不是"一整句"（不是短语）。"""
+    eng = _norm_phrase(eng)
+    if not eng:
+        return False
+    words = eng.split()
+    if len(words) >= 7:
+        return True
+    # 含连接词、且词数 >= 5 → 八成是句子
+    if len(words) >= 5 and SENTENCE_HINT.search(eng):
+        return True
+    # 句末标点 + 首字母大写 + 多词
+    if len(words) >= 4 and eng[0].isupper() and eng.rstrip().endswith((".", "!", "?")):
+        return True
+    return False
+
+
+def same_lexeme(a, b):
+    """两个短语是不是"同一个词的变形"（don't want vs didn't want）。
+
+    规则：去掉助动词/否定词后，实词完全一致 → 只是时态或否定变化，不算新短语。
+    """
+    def core(s):
+        ws = [w.lower().strip(".,!?;:") for w in re.split(r"\s+", s or "") if w]
+        return [w for w in ws if w not in AUX_WORDS and w not in
+                ("don't", "doesn't", "didn't", "isn't", "aren't", "wasn't", "weren't")]
+
+    ca, cb = core(a), core(b)
+    if not ca or not cb:
+        return False
+    return ca == cb
 
 
 def _clean_zh(z):
     """把解释里的连接词剥掉，只留含义"""
     z = (z or "").strip(" ，,：:、;；。")
+    # 优先取引号/书名号里的中文含义："表示「我正在为……工作」" → 我正在为……工作
+    q = re.search(r"[“\"「『]([^”\"」』]{2,60})[”\"」』]", z)
+    if q and re.search(r"[\u4e00-\u9fff]", q.group(1)):
+        return q.group(1).strip(" ，,。：:")[:110]
     # 去掉开头残留的英文原句（"I'm working for... 表示…" → "我正在为……工作"）
-    z = re.sub(r"^[A-Za-z][A-Za-z'\-\.\s]{0,50}?(?:表示|强调|意思是|指的是|是)\s*", "", z)
-    z = re.sub(r"^[A-Za-z][A-Za-z'\-\.\s,]{0,50}\s+", "", z) if re.search(r"[\u4e00-\u9fff]", z) else z
+    z = re.sub(r"^[A-Za-z][A-Za-z'\-\s\.]{1,60}?(?:表示|强调|意思是|指的是|是)\s*", "", z)
     # "中的 home 前面通常不加 to" → "home 前面通常不加 to"
-    z = re.sub(r"^(?:中的|里的|中的这个|其中)\s*", "", z)
-    # 去掉包裹的中文引号
-    z = z.strip("“”\"'‘’")
+    z = re.sub(r"^(?:中的|里的|其中)\s*", "", z)
+    # 去掉"如果你想…／也可以说"这类引导语，只留短语本身或含义
+    z = re.sub(r"^(?:如果你想[^，,。]{0,30}[，,]?|也可以说|也可以写|或者说|另外)\s*", "", z)
+    m = re.search(r"[，,]\s*([^，,]{4,80})$", z)
+    if m and re.search(r"(也可以|也行|更好|更自然|更地道)", m.group(0)):
+        z = m.group(1)
     for _ in range(4):
         before = z
         z = re.sub(r"^(?:是|一个|一种|一种表达|表达|用来|可以|就是指|指)\s*", "", z)
@@ -520,15 +580,11 @@ def _clean_zh(z):
         z = z.strip(" ，,：:、")
         if z == before:
             break
-    return z[:100]
+    return z.strip("“”\"'‘’")[:110]
 
 
 def _split_units(note):
-    """把一段讲解切成若干"小单元"，每个单元含 1 个（或 1 组）短语。
-
-    注意：**不按「；」切**——"A 强调…；B 强调…" 这种对比必须整句保留，
-    否则对比关系永远抓不到。带分号的句子由调用方先处理对比，再拆开。
-    """
+    """把一段讲解切成"小单元"。不按「；」切，对比句要整句看。"""
     text = as_text(note)
     for chunk in re.split(r"[。！!？?\n]+", text):
         chunk = chunk.strip(" \t·-—")
@@ -537,37 +593,63 @@ def _split_units(note):
 
 
 def extract_phrases_from_notes(c, where=""):
-    """从逐句讲解里挖出短语 / 句型。
+    """从逐句讲解里挖出短语 / 句型 / 单词。
 
-    返回 [{original, suggestion, note, kind, contrast}]
-      kind: phrase（短语） | pattern（句型/规则） | word（单词）
-      contrast: 对比组里的另一方（"could hear it" ↔ "pay attention to it"）
+    返回 [{original, suggestion, note, kind, contrast, same_as}]
+      kind:    phrase（短语） | pattern（句型） | word（单词）
+      contrast: 一句话里被拿来对比的另一个说法（"could hear it" ↔ "pay attention to it"）
+      same_as:  同义推荐（"correct it … revise it 也可以"）
     """
     c = c if isinstance(c, dict) else {}
     found, seen = [], set()
-    contrast_pairs = []      # [(idx_a, idx_b)]
+    contrast_pairs, same_pairs = [], []
 
     def push(eng, zh, note, kind=""):
-        eng = _norm_phrase(eng) if kind != "pattern" else (eng or "").strip()
-        if not eng:
-            return -1
-        if kind != "pattern":
-            if not is_phrase(eng):
+        raw = (eng or "").strip()
+        if kind == "pattern":
+            key_txt = raw
+        else:
+            raw = _norm_phrase(raw)
+            if not raw:
+                return -1
+            # 整句不收
+            if is_sentence(raw):
+                return -1
+            kind = "phrase" if is_phrase(raw) else "word"
+            if not kind:
                 kind = "word"
-            elif not kind:
-                kind = "phrase"
-        elif not kind:
-            kind = "pattern"
-        key = (eng.lower(), kind)
+            key_txt = raw.lower()
+
+        key = (key_txt, kind)
         if key in seen:
+            # 已经收过同一个词：补充解释（不新增一行）
+            for item in found:
+                if item["original"].lower() == key_txt and item["kind"] == kind:
+                    zh2 = (zh or "").strip()
+                    if not zh2:
+                        break
+                    cur = item["suggestion"]
+                    if cur in ("（见讲解）", "（见讲解）；", ""):
+                        item["suggestion"] = zh2[:160]
+                    elif zh2 not in cur:
+                        item["suggestion"] = (cur + "；" + zh2)[:160]
+                    break
             return -1
+
+        # 同一词根的变形（don't want / didn't want）→ 视为同一个，不重复收
+        if kind != "pattern":
+            for item in found:
+                if item["kind"] != "pattern" and same_lexeme(item["original"], key_txt):
+                    return -1
+
         seen.add(key)
         if kind == "word" and not (zh or "").strip():
             zh = "单词（不是短语）"
-        found.append({"original": eng[:120],
-                      "suggestion": (zh or "").strip()[:120] or "（见讲解）",
-                      "note": (note or "").strip()[:260],
-                      "where": where, "kind": kind, "contrast": ""})
+        found.append({"original": raw[:120],
+                      "suggestion": (zh or "").strip()[:140] or "（见讲解）",
+                      "note": (note or "").strip()[:280],
+                      "where": where, "kind": kind,
+                      "contrast": "", "same_as": ""})
         return len(found) - 1
 
     for sn in as_list(c.get("sentences")):
@@ -577,7 +659,7 @@ def extract_phrases_from_notes(c, where=""):
         if not note:
             continue
 
-        # ① 先扫整段 note 的"对比型"句子（含 ；），必须在拆分前做
+        # ── ① 整段扫"对比型"句子（含 ；），必须在拆分前做
         for raw in re.split(r"[。！!？?\n]+", note):
             raw = raw.strip(" \t·-—")
             if len(raw) < 4 or not re.search(r"[；;]", raw):
@@ -595,44 +677,87 @@ def extract_phrases_from_notes(c, where=""):
                     for y in range(x + 1, len(valid)):
                         contrast_pairs.append((valid[x], valid[y]))
 
+        # ── ② 跨句同义配对："correct it 是…。…revise it 也可以"
+        #     先记住本段里所有"X 是/表示…"的主说法，遇到 also 说法就配对
+        primary_in_note = []      # [(英文, 中文含义)]
+        for u in _split_units(note):
+            mm = re.match(r"^\s*([A-Za-z][A-Za-z'\-]*(?:[ \t]+[A-Za-z][A-Za-z'\-]*){0,4})"
+                          r"\s*(?:\.{2,}|…)?\s*(?:是一个|是|表示|意思是|指的是)\s*(.+)$", u)
+            if mm and not is_sentence(mm.group(1)):
+                primary_in_note.append((mm.group(1).strip(), _clean_zh(mm.group(2))))
+        for u in _split_units(note):
+            for pat in (PAT_ALSO, PAT_ALSO2):
+                for mm in pat.finditer(u):
+                    other = mm.group(1).strip()
+                    if is_sentence(other) or not primary_in_note:
+                        continue
+                    base0, base_zh = primary_in_note[0]
+                    if base0.lower() == other.lower():
+                        continue
+                    push(other, "同义说法" + (f"（≈ {base_zh}）" if base_zh else ""), note)
+                    push(base0, base_zh, note)
+                    same_pairs.append((base0, other))
+
         for ch in _split_units(note):
             # ── A. 显式句型："句型：某件事 + takes + 时间"
             if PAT_PATTERN.search(ch):
                 for m in PAT_PATTERN.finditer(ch):
                     pat = m.group(1).strip()
-                    if re.search(r"[A-Za-z\u4e00-\u9fff]", pat):
+                    # 句型内容太像一整句（如 "It was ten PM when …"）就跳过
+                    if re.search(r"[A-Za-z\u4e00-\u9fff]", pat) and not is_sentence(pat):
                         push("句型：" + pat, "句型模板", ch, "pattern")
                 continue
 
-            # ── C. "X 是 / 表示 / 意思是 …"
+            # ── B. "X 是一个短语动词，表示…"
             got = False
             for m in PAT_WORD.finditer(ch):
                 tail = m.group(2).strip()
                 if PAT_IS_WORD.match(tail):
-                    # 纯单词标注成"词汇"，含义留空让上层补"（单词）"
                     push(m.group(1), "", ch, "word")
+                elif is_sentence(m.group(1)):
+                    continue
                 else:
                     push(m.group(1), _clean_zh(tail), ch)
                 got = True
             if got:
                 continue
 
-            # ── C2. 一句里出现多个"X 也可以 / X 更自然" → 每个都收
-            for m in re.finditer(
-                    r"([A-Za-z][A-Za-z'\-]*(?:[ \t]+[A-Za-z][A-Za-z'\-]*){0,4})"
-                    r"\s*(?:也可以|也行|更好|更自然|更地道|更准确)", ch):
-                push(m.group(1), "另一种说法（同义表达）", ch)
+            # ── C. 同义推荐："…，revise it 也可以" / "也可以说 I work for"
+            base = None
+            # "I'm working for... 表示…" → 允许后面跟省略号
+            m0 = re.search(
+                r"^\s*([A-Za-z][A-Za-z'\-]*(?:[ \t]+[A-Za-z][A-Za-z'\-]*){0,4})"
+                r"\s*(?:\.{2,}|…)?\s*(?:表示|意思是|指的是|是)\s*(.+)$", ch)
+            if m0:
+                base = m0.group(1).strip()
+            also_idx = []
+            for pat in (PAT_ALSO, PAT_ALSO2):
+                for m in pat.finditer(ch):
+                    txt = m.group(1).strip()
+                    idx = push(txt, "同义说法", ch)
+                    also_idx.append((idx, txt))
+                    got = True
+            if got:
+                # 把主说法也收进来，并和同义说法互相关联
+                if base and not is_sentence(base):
+                    base_zh = _clean_zh(m0.group(2)) if m0 else ""
+                    bidx = push(base, base_zh, ch)
+                    # 无论主说法是否已存在，都登记同义关系（后续按文本对齐）
+                    for idx, txt in also_idx:
+                        if txt.lower() != base.lower():
+                            same_pairs.append((base, txt))
+                continue
 
             # ── D. "decide to do something：决定做某事"
             for m in PAT_COLON.finditer(ch):
                 eng, zh = m.group(1).strip(), m.group(2).strip()
-                if re.search(r"[\u4e00-\u9fff]", zh):
+                if re.search(r"[\u4e00-\u9fff]", zh) and not is_sentence(eng):
                     push(eng, _clean_zh(zh), ch)
                     got = True
             if got:
                 continue
 
-            # ── E. "come back home 中的 home 前面通常不加 to" → 规则
+            # ── E. "X 中的 Y 前面通常不加 to" → 句型规则
             m = PAT_QUOTED.search(ch)
             if m:
                 eng = m.group(1).strip()
@@ -640,30 +765,35 @@ def extract_phrases_from_notes(c, where=""):
                     push("句型：" + eng, _clean_zh(ch), ch, "pattern")
                 else:
                     push(eng, _clean_zh(ch), ch)
-                got = True
 
             # ── F. 纯规则句（"should 后面直接接动词原形，不加 to"）
-            if not got and PATTERN_HINTS.search(ch):
-                # 抓句首/句中第一个英文结构当标题
-                m2 = re.match(r"^([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,4})", ch)
-                title = m2.group(1) if m2 else ""
-                if title:
-                    push("句型：" + title + " —— " + _clean_zh(ch), "语法规则", ch, "pattern")
+            #      注意：不再做"抓句首英文"的猜测，只收能明确判定为规则的
+            elif PATTERN_HINTS.search(ch):
+                m2 = re.match(r"^([A-Za-z][A-Za-z'\-]{1,20})\s", ch)
+                if m2 and m2.group(1).lower() not in STOP_ENG:
+                    rule = _clean_zh(ch)
+                    push("句型：" + m2.group(1) + " —— " + rule, "语法规则", ch, "pattern")
 
-            # ── G. 兜底：一句话里出现的英文片段，若只 1~3 个词就算短语
-            if not got:
-                for em in re.finditer(r"[A-Za-z][A-Za-z'\-]*(?:[ \t]+[A-Za-z][A-Za-z'\-]*){1,3}", ch):
-                    cand = em.group(0)
-                    if len(cand.split()) >= 2 and len(cand) <= 40:
-                        push(cand, _clean_zh(ch), ch)
+            # ── 兜底已删除：旧版按空格切片会产生
+            #    "studying takes a lot" / "of time" 这类碎片，宁缺毋滥。
 
-    # 给对比组写上"对比另一方"（按 original 文本对齐，避免去重导致下标错位）
+    # 写入对比关系
     for a, b in contrast_pairs:
         if 0 <= a < len(found) and 0 <= b < len(found):
             x, y = found[a]["original"], found[b]["original"]
             if x and y and x != y:
                 found[a]["contrast"] = y
                 found[b]["contrast"] = x
+
+    # 写入同义关系（双向标注；任一侧已存在就标上）
+    for base, other in same_pairs:
+        base_l, other_l = base.lower().strip(), other.lower().strip()
+        for item in found:
+            k = item["original"].lower().strip()
+            if k == other_l and not item["same_as"]:
+                item["same_as"] = base
+            elif k == base_l and not item["same_as"]:
+                item["same_as"] = other
 
     return found
 
@@ -745,19 +875,21 @@ def build_clean_version(c):
         parts.append(text)
 
     if parts:
-        joined = " ".join(
-            p if p.rstrip().endswith((".", "!", "?", '"')) else p + "."
-            for p in parts)
-        # 如果某句已经包含在已拼好的内容里（旧数据常见：整篇 + 逐句都给了），不再重复
+        # 每句单独补句末标点再拼接，避免缩写（I'm / don't）被当成句尾切出双句点
+        SENT_END = (".", "!", "?", "…")
         out = []
-        for piece in joined.split(". "):
+        for piece in parts:
             piece = piece.strip()
             if not piece:
                 continue
-            norm = re.sub(r"\W+", "", piece.lower())
-            if any(norm and norm in re.sub(r"\W+", "", o.lower()) for o in out):
+            if not piece.rstrip().endswith(SENT_END):
+                piece += "."
+            key = re.sub(r"\W+", "", piece.lower())
+            # 旧数据常见「整篇 + 逐句」都给了一份，短文整段包含在长句里就跳过
+            if any(key and (key in re.sub(r"\W+", "", o.lower())
+                            or re.sub(r"\W+", "", o.lower()) in key) for o in out):
                 continue
-            out.append(piece + ".")
+            out.append(piece)
         return " ".join(out)
 
     for key in ("version_advanced",):
@@ -1326,23 +1458,57 @@ def phrase_book():
       2. 逐句讲解里挖出的短语/句型   —— "take up 是一个短语动词"、"句型：…"
       3. correction.wanted_phrases   —— "我想说但不会说"的中英对照
     """
-    items, seen = [], set()
+    items, index = [], {}
 
-    def push(original, suggestion, note, essay_id, essay_title, kind, contrast=""):
+    def push(original, suggestion, note, essay_id, essay_title, kind, contrast="", same_as=""):
+        """同一个词只留一条：
+        · 新含义不是已有含义的一部分 → 追加到释义后面（用「／」隔开）
+        · 出处不同的 → 追加到 sources 列表（页面上显示成多个「出自」链接）
+        · 相同的词/释义/出处 → 完全跳过，不重复添加
+        """
         original = as_text(original).strip()
         suggestion = as_text(suggestion).strip()
         note = as_text(note).strip()
+        contrast = as_text(contrast).strip()
+        same_as = as_text(same_as).strip()
+        title = as_text(essay_title)
         if not original:
             return
-        key = (original.lower()[:120], kind)
-        if key in seen:
+        key = (original.lower(), kind)
+        src = {"essay_id": essay_id, "essay_title": title}
+
+        if key in index:
+            it = items[index[key]]
+            # 释义合并
+            if suggestion and suggestion != "（见讲解）":
+                cur = it["suggestion"]
+                parts = [p.strip() for p in re.split(r"[／/]", cur) if p.strip()]
+                if not any(suggestion in p or p in suggestion for p in parts
+                           if p != "（见讲解）"):
+                    if cur in ("（见讲解）", ""):
+                        it["suggestion"] = suggestion[:260]
+                    else:
+                        it["suggestion"] = (cur + " ／ " + suggestion)[:260]
+            # 讲解合并
+            if note and note not in it["note"]:
+                it["note"] = (it["note"] + "　▸ " + note)[:520] if it["note"] else note[:520]
+            # 对比 / 同义关系合并
+            if contrast and contrast not in it["contrast"]:
+                it["contrast"] = (it["contrast"] + " ／ " + contrast).strip(" ／")[:200]
+            if same_as and same_as not in it["same_as"]:
+                it["same_as"] = (it["same_as"] + " ／ " + same_as).strip(" ／")[:200]
+            # 出处去重追加
+            if not any(x["essay_id"] == essay_id for x in it["sources"]):
+                it["sources"].append(src)
             return
-        seen.add(key)
-        items.append({"essay_id": essay_id, "essay_title": as_text(essay_title),
+
+        index[key] = len(items)
+        items.append({"essay_id": essay_id, "essay_title": title,
                       "original": original[:200],
-                      "suggestion": suggestion[:200] or "（见讲解）",
-                      "note": note[:300], "kind": kind,
-                      "contrast": as_text(contrast).strip()[:200]})
+                      "suggestion": suggestion[:260] or "（见讲解）",
+                      "note": note[:520], "kind": kind,
+                      "contrast": contrast[:200], "same_as": same_as[:200],
+                      "sources": [src]})
 
     rows = db().execute(
         "SELECT id, title, correction FROM essays WHERE corrected=1 ORDER BY id DESC"
@@ -1370,7 +1536,8 @@ def phrase_book():
         # 2) 逐句讲解里挖出来的短语 / 句型 / 单词
         for v in extract_phrases_from_notes(c):
             push(v["original"], v["suggestion"], v["note"],
-                 e["id"], title, v.get("kind", "phrase"), v.get("contrast", ""))
+                 e["id"], title, v.get("kind", "phrase"),
+                 v.get("contrast", ""), v.get("same_as", ""))
 
         # 3) "我想说但不会说" 的中英对照
         for w in as_list(c.get("wanted_phrases")):

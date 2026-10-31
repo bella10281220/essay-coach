@@ -3,8 +3,8 @@
 <div class="card hero">
   <h2>🧺 短语本</h2>
   <p style="font-size:14px;color:var(--sub)">
-    批改时讲到的<b>句型规则</b>、<b>短语搭配</b>、<b>单词</b>都会自动分门别类收进来。
-    一条讲解里出现几个短语就收几条；意思相近的两个说法会用「对比」标出来，方便你区分。
+    批改时讲到的<b>句型规则</b>、<b>短语搭配</b>、<b>单词</b>会自动分门别类收进来。
+    同一个说法只留一条——后来学到的新含义会追加在释义后面，出处也会一并挂上。
   </p>
 </div>
 
@@ -16,7 +16,7 @@
     <button class="chip on" onclick="filterKind('all',this)">全部 {{ items|length }}</button>
     {% for k, title, desc in groups %}
       {% if cnt[k] %}
-      <button class="chip" onclick="filterKind('{{ k }}',this)">{{ title.split(' ')[0] }} {{ title.split(' ',1)[1] }} {{ cnt[k] }}</button>
+      <button class="chip" onclick="filterKind('{{ k }}',this)">{{ title }} {{ cnt[k] }}</button>
       {% endif %}
     {% endfor %}
   </div>
@@ -26,12 +26,12 @@
   {% set rows = items|selectattr('kind','equalto',k)|list %}
   {% if rows %}
   <div class="card group" data-kind="{{ k }}">
-    <h3 style="margin:0 0 4px;font-size:16px">{{ title }}</h3>
+    <h3 style="margin:0 0 4px;font-size:16px">{{ title }} <span class="n">{{ rows|length }}</span></h3>
     <p style="font-size:12.5px;color:var(--sub);margin:0 0 14px">{{ desc }}</p>
     <table>
       <tr>
-        <th style="width:27%">英文</th>
-        <th style="width:28%">含义 / 更好说法</th>
+        <th style="width:26%">英文</th>
+        <th style="width:27%">含义 / 更好说法</th>
         <th>讲解 · 出处</th>
       </tr>
       {% for v in rows %}
@@ -39,15 +39,24 @@
         <td>
           <span class="en">{{ v.original }}</span>
           {% if v.contrast %}
-          <div class="contrast" title="这两个说法意思相近，注意区别">
+          <div class="rel contrast" title="容易混的两个说法，注意区别">
             <span class="vs">对比</span>{{ v.contrast }}
+          </div>
+          {% endif %}
+          {% if v.same_as is defined and v.same_as %}
+          <div class="rel same" title="意思相同，可以替换">
+            <span class="vs vs-same">同义</span>{{ v.same_as }}
           </div>
           {% endif %}
         </td>
         <td style="color:#c46b6b">{{ v.suggestion }}</td>
         <td style="color:var(--sub);font-size:13px">
           {{ v.note }}
-          <a href="{{ url_for('essay', essay_id=v.essay_id) }}" class="src">出自《{{ v.essay_title }}》↗</a>
+          <div style="margin-top:5px">
+            {% for s in v.sources %}
+            <a href="{{ url_for('essay', essay_id=s.essay_id) }}" class="src">《{{ s.essay_title }}》↗</a>
+            {% endfor %}
+          </div>
         </td>
       </tr>
       {% endfor %}
@@ -64,10 +73,11 @@
     · 「take up 是一个短语动词」→ 短语<br>
     · 「句型：某件事 + takes + 时间」→ 句型<br>
     · 「decide to do something：决定做某事」→ 短语<br>
-    · 「correct it 是…，revise it 也可以」→ 两条都收<br>
-    · 「could hear it 强调…；pay attention to it 强调…」→ 两条都收，并互相标「对比」<br>
+    · 「correct it 是…，revise it 也可以」→ 两条都收，并互标「同义」<br>
+    · 「could hear it 强调…；pay attention to it 强调…」→ 两条都收，互标「对比」<br>
     · 「should 后面直接接动词原形，不加 to」→ 句型规则<br>
-    · 「Soul 是单词」→ 归到单词，不混进短语
+    · 「Soul 是单词」→ 归到单词，不混进短语<br>
+    · don't want / didn't want 这类<b>只是时态变化</b>的，不会重复收
   </p>
 </div>
 {% endif %}
@@ -77,12 +87,15 @@
       color:var(--sub);font-size:13px;cursor:pointer;transition:.15s;font-family:inherit}
 .chip:hover{border-color:var(--green)}
 .chip.on{background:var(--green);border-color:var(--green);color:#fff}
+.n{font-size:12px;color:#fff;background:var(--green);border-radius:99px;padding:0 7px;margin-left:4px;vertical-align:2px}
 .en{color:var(--green-d);font-weight:600;word-break:break-word}
-.contrast{margin-top:5px;font-size:12px;color:var(--sub);background:#fdf6e4;
-          border-left:3px solid #e9b970;padding:3px 8px;border-radius:0 6px 6px 0}
-.vs{display:inline-block;background:#e9b970;color:#fff;font-size:10.5px;
-    padding:0 5px;border-radius:99px;margin-right:6px;vertical-align:1px}
-.src{font-size:11.5px;margin-left:6px;white-space:nowrap;color:var(--green-d);text-decoration:none}
+.rel{margin-top:5px;font-size:12px;color:var(--sub);padding:3px 8px;border-radius:0 6px 6px 0;border-left:3px solid}
+.rel.contrast{background:#fdf6e4;border-color:#e9b970}
+.rel.same{background:#eaf4fb;border-color:#79b8dc}
+.vs{display:inline-block;color:#fff;font-size:10.5px;padding:0 5px;border-radius:99px;
+    margin-right:6px;vertical-align:1px;background:#e9b970}
+.vs-same{background:#79b8dc}
+.src{font-size:11.5px;margin-right:8px;white-space:nowrap;color:var(--green-d);text-decoration:none}
 .src:hover{text-decoration:underline}
 </style>
 <script>
