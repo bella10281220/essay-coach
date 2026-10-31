@@ -30,9 +30,9 @@
     <p style="font-size:12.5px;color:var(--sub);margin:0 0 14px">{{ desc }}</p>
     <table>
       <tr>
-        <th style="width:26%">英文</th>
-        <th style="width:27%">含义 / 更好说法</th>
-        <th>讲解 · 出处</th>
+        <th style="width:24%">英文</th>
+        <th style="width:34%">含义 / 更好说法</th>
+        <th>讲解</th>
       </tr>
       {% for v in rows %}
       <tr>
@@ -49,14 +49,18 @@
           </div>
           {% endif %}
         </td>
-        <td style="color:#c46b6b">{{ v.suggestion }}</td>
-        <td style="color:var(--sub);font-size:13px">
-          {{ v.note }}
-          <div style="margin-top:5px">
+        <td style="color:#c46b6b">
+          {{ v.suggestion }}
+          {% if v.sources %}
+          <div style="margin-top:4px">
             {% for s in v.sources %}
             <a href="{{ url_for('essay', essay_id=s.essay_id) }}" class="src">《{{ s.essay_title }}》↗</a>
             {% endfor %}
           </div>
+          {% endif %}
+        </td>
+        <td style="color:var(--sub);font-size:13px">
+          {{ v.note or '—' }}
         </td>
       </tr>
       {% endfor %}

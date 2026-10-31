@@ -33,7 +33,7 @@ def log(*args):
             pass
 
 
-VERSION = "3.8"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.9"   # 页脚显示，用于确认正在运行的是新版本
 
 
 def pick_port(default=5000, span=20):
@@ -790,10 +790,10 @@ def extract_phrases_from_notes(c, where=""):
         base_l, other_l = base.lower().strip(), other.lower().strip()
         for item in found:
             k = item["original"].lower().strip()
-            if k == other_l and not item["same_as"]:
-                item["same_as"] = base
-            elif k == base_l and not item["same_as"]:
-                item["same_as"] = other
+            if k == other_l and base_l not in (item["same_as"] or "").lower():
+                item["same_as"] = (item["same_as"] + " ／ " + base).strip(" ／ ") if item["same_as"] else base
+            elif k == base_l and other_l not in (item["same_as"] or "").lower():
+                item["same_as"] = (item["same_as"] + " ／ " + other).strip(" ／ ") if item["same_as"] else other
 
     return found
 
@@ -969,12 +969,17 @@ def shelf():
             "SELECT * FROM essays WHERE corrected=1 ORDER BY id DESC").fetchall():
         c = safe_correction(e["correction"])
         adv = as_text(c.get("version_advanced")).strip()
-        annotated, _ = build_annotated(c, {}) if c else ("", [])
+        annotated, _, clean_orig = build_annotated(c, {}) if c else ("", [], "")
+        clean_text = clean_book_text(c, e["content"])
+        # 导入的文章常没有 version_current，clean_book_text 会退回用户粘贴的
+        # 「原文+删除线+讲解」混杂文本。这时改用逐句拼出来的干净原文。
+        if clean_orig and not as_text(c.get("version_current")).strip():
+            clean_text = clean_orig
         books.append({
             "id": e["id"], "title": as_text(c.get("book_title") or e["title"]),
             "date": time.strftime("%Y-%m-%d", time.localtime(e["created_at"])),
             "score": c.get("score"),
-            "text": clean_book_text(c, e["content"]),
+            "text": clean_text,
             # 进阶版也可能混着讲解，同样过一遍清洗
             "advanced": clean_book_text({"version_current": adv}),
             # 完整批改：原文 + 划线 + 可点讲解
@@ -1049,15 +1054,18 @@ def essay(essay_id):
     e = db().execute("SELECT * FROM essays WHERE id=?", (essay_id,)).fetchone()
     if not e:
         return "作文不存在", 404
-    correction = json.loads(e["correction"]) if e["correction"] else None
+    correction = safe_correction(e["correction"])
     qa_map = get_qa_map(essay_id)
-    annotated, annot_meta = ("", [])
+    annotated, annot_meta, clean_orig = ("", [], "")
     if correction:
-        annotated, annot_meta = build_annotated(correction, qa_map)
+        annotated, annot_meta, clean_orig = build_annotated(correction, qa_map)
     # 当前水平版 / 进阶版统一走清洗，避免把"原文+讲解"大杂烩直接端出来
     clean_cur = clean_book_text(correction, e["content"]) if correction else ""
+    # 没有 version_current（粘贴导入的常见情况）→ 用逐句拼出来的干净原文
+    if clean_orig and not as_text(correction.get("version_current")).strip():
+        clean_cur = clean_orig
     clean_adv = clean_book_text(
-        {"version_current": as_text((correction or {}).get("version_advanced"))}
+        {"version_current": as_text(correction.get("version_advanced"))}
     ) if correction else ""
     return render_template("essay.html", e=e, c=correction,
                            annotated=annotated, annot_meta=annot_meta,
@@ -1177,36 +1185,155 @@ def ask(essay_id):
                     "time": time.strftime("%H:%M")})
 
 
+def _tidy_norm(s):
+    """全角中文标点 → 英文标点，收掉多余空格。"""
+    s = as_text(s)
+    if not s:
+        return ""
+    s = s.replace("，", ", ").replace("。", ". ").replace("；", "; ") \
+         .replace("：", ": ").replace("！", "! ").replace("？", "? ") \
+         .replace("、", ", ").replace("（", " (").replace("）", ") ") \
+         .replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'") \
+         .replace("…", "...").replace("\u00a0", " ").replace("\u3000", " ")
+    s = re.sub(r"\s+([,.;:!?])", r"\1", s)
+    s = re.sub(r"\s{2,}", " ", s).strip()
+    return re.sub(r"^[\s,.;:]+", "", s)
+
+
+def _tidy_fixed(fn, s, n=6):
+    for _ in range(n):
+        t = fn(s)
+        if t == s:
+            break
+        s = t
+    return s
+
+
+def _tidy_dedupe_exact(s):
+    """紧邻重复的整段（yesterday. yesterday.）→ 只留一份。"""
+    for j in range(4, len(s) - 3):
+        lo = min(30, j, len(s) - j)
+        for L in range(lo, 3, -1):
+            a, b = s[j - L:j], s[j:j + L]
+            if a.lower() != b.lower():
+                continue
+            # 两端都要落在词边界上，避免 work / working 被误剪
+            if a[0].isalnum() and j - L > 0 and s[j - L - 1].isalnum():
+                continue
+            if b[0].isalnum() and j + L < len(s) and s[j + L].isalnum():
+                continue
+            s = s[:j - L] + s[j:]
+            s = re.sub(r"\s{2,}", " ", s)
+            s = re.sub(r"\s+([,.;:!?])", r"\1", s)
+            return s
+    return s
+
+
+def _tidy_dedupe_word(s):
+    """workworking → working；didn t → didn't。"""
+    def fix(mt):
+        w = mt.group(0)
+        low = w.lower()
+        for L in range(len(low) // 2, 3, -1):
+            if low[:L] == low[L:2 * L]:
+                return w[L:]
+        return w
+    s = re.sub(r"\b[A-Za-z]{8,}\b", fix, s)
+    # "didn t" / "didnt" → "didn't"（缩写被空格劈开或漏了撇号）
+    s = re.sub(r"\b(\w+(?:n|'|\u2019))\s+([tTsSdD])\b(?!['\u2019])",
+               lambda m: m.group(1) + "'" + m.group(2), s)
+    s = re.sub(r"\b(didn|doesn|isn|aren|wasn|weren|don|won|couldn|shouldn|wouldn)"
+               r"(t|T|s|S|d|D)\b", lambda m: m.group(1) + "'" + m.group(2), s)
+    return s
+
+
+def _tidy_drop_tail_repeat(s):
+    """句末重复的半句：'long, it long.' → 'long.'"""
+    m = re.search(r"([A-Za-z]+)\s*[.,]\s*(?:[A-Za-z']+\s+)?\1\s*([.!?]?)$", s)
+    if m:
+        head = s[:m.start()].rstrip(" ,;:")
+        return (head + " " + m.group(1) + (m.group(2) or "")).strip()
+    return s
+
+
+def tidy_sentence(s):
+    """清理被弄脏的句子文本。
+
+    从 ChatGPT 复制时常见的两种脏数据：
+      1. 中文全角标点混进英文句子：`long，it` / `yesterday。`
+      2. 删除线被拍平：`bad company。The company.` / `long，it long.` /
+         `workworking` / `didn t`
+    这里只做「保守且确定」的清理：宁可留一点脏，也绝不把正常句子改坏。
+    """
+    s = _tidy_norm(s)
+    s = _tidy_fixed(_tidy_dedupe_word, s)
+    s = _tidy_fixed(_tidy_dedupe_exact, s)
+    s = _tidy_fixed(_tidy_drop_tail_repeat, s)
+    s = re.sub(r"\s{2,}", " ", s)
+    s = re.sub(r"\s+([,.;:!?])", r"\1", s)
+    return s.strip(" ,;:")
+
+
 def inline_diff_words(original, revised):
-    """词级 diff：返回 (kind, text) 片段列表，kind: same/del/ins"""
-    ow, rw = original.split(), revised.split()
-    sm = difflib.SequenceMatcher(None, [w.lower().strip('.,!?;:"') for w in ow],
-                                      [w.lower().strip('.,!?;:"') for w in rw])
+    """字符级 diff：返回 (kind, text) 片段列表，kind: same/del/ins
+
+    按**字符**比对而不是按空格切词。按词切会把 \"didn t\" / \"yesterday。\"
+    这种粘连片段整段划掉，页面上就变成 \"But i didn t didn't do it yesterday。
+    yesterday.\" 一堆重复。字符级能把改动精确收缩到 \"work → working\" 这一处。
+    """
+    o, r = tidy_sentence(original), tidy_sentence(revised)
+    if o == r:
+        return [("same", o)]
+    sm = difflib.SequenceMatcher(None, o, r, autojunk=False)
     segs = []
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
-            segs.append(("same", " ".join(ow[i1:i2])))
+            segs.append(("same", o[i1:i2]))
         elif tag == "delete":
-            segs.append(("del", " ".join(ow[i1:i2])))
+            segs.append(("del", o[i1:i2]))
         elif tag == "insert":
-            segs.append(("ins", " ".join(rw[j1:j2])))
-        else:  # replace
-            if i1 < i2:
-                segs.append(("del", " ".join(ow[i1:i2])))
-            if j1 < j2:
-                segs.append(("ins", " ".join(rw[j1:j2])))
-    return segs
+            segs.append(("ins", r[j1:j2]))
+        else:
+            segs.append(("del", o[i1:i2]))
+            segs.append(("ins", r[j1:j2]))
+
+    # 纯空白 / 纯标点 的变化不划线，直接按新文本显示
+    out = []
+    for kind, txt in segs:
+        if kind != "same" and not re.search(r"[A-Za-z0-9]", txt):
+            out.append(("same", txt))
+            continue
+        out.append((kind, txt))
+
+    # 相邻同类合并，减少 span 数量
+    merged = []
+    for kind, txt in out:
+        if merged and merged[-1][0] == kind:
+            merged[-1] = (kind, merged[-1][1] + txt)
+        else:
+            merged.append((kind, txt))
+    return merged
 
 
 def build_annotated(c, qa_map):
-    """生成整篇批改 HTML + 每句元数据（供点击详情/追问）"""
-    meta, parts = [], []
-    for i, sn in enumerate(c.get("sentences", [])):
-        orig, rev = sn.get("original", ""), sn.get("revised", "")
-        typ = sn.get("type", "error")
+    """生成整篇批改 HTML + 每句元数据（供点击详情/追问）
+
+    同时返回「干净原文」——把 sentences 里的 original 逐句拼起来。
+    导入的文章常常没有 version_current，以前只能退回用户粘贴的
+    「原文+删除线+AI 讲解」大杂烩，书架和当前水平版全是乱的。
+    """
+    c = c if isinstance(c, dict) else {}
+    meta, parts, clean_orig = [], [], []
+    sentences = [x for x in as_list(c.get("sentences")) if isinstance(x, dict)]
+    for i, sn in enumerate(sentences):
+        orig = as_text(sn.get("original"))
+        rev = as_text(sn.get("revised"))
+        typ = as_text(sn.get("type")) or "error"
+        if typ not in ("error", "optimize", "complex_kept", "good"):
+            typ = "error"
         skey = orig[:120]
-        if typ == "good" or not rev or rev == orig:
-            segs = [("same", orig)]
+        if typ == "good" or not rev or tidy_sentence(rev) == tidy_sentence(orig):
+            segs = [("same", tidy_sentence(orig))]
         else:
             segs = inline_diff_words(orig, rev)
         # 拼接句子 HTML：只有 error（真正用错）才划掉；
@@ -1215,19 +1342,43 @@ def build_annotated(c, qa_map):
         for kind, txt in segs:
             esc = html_mod.escape(txt)
             if kind == "del" and typ == "error":
-                html_parts.append(f'<span class="mk del" onclick="showDetail({i})">{esc}</span> ')
+                html_parts.append(f'<span class="mk del" onclick="showDetail({i})">{esc}</span>')
             elif kind == "ins":
-                html_parts.append(f'<span class="mk ins {typ}" onclick="showDetail({i})">{esc}</span> ')
+                html_parts.append(f'<span class="mk ins {typ}" onclick="showDetail({i})">{esc}</span>')
             elif kind == "del":
                 # 非 error 的原词：正常显示，仍可点击看讲解
-                html_parts.append(f'<span class="mk plain" onclick="showDetail({i})">{esc}</span> ')
+                html_parts.append(f'<span class="mk plain" onclick="showDetail({i})">{esc}</span>')
             else:
-                html_parts.append(esc + " ")
-        parts.append("".join(html_parts).strip())
-        meta.append({"i": i, "type": typ, "note": sn.get("note", ""),
-                     "original": orig, "revised": rev, "skey": skey,
-                     "qa": qa_map.get(skey, [])})
-    return " ".join(parts), meta
+                html_parts.append(esc)
+        parts.append("".join(html_parts))
+
+        # 干净原句：优先 revised（改对的句子），没有就用清洗过的原句
+        cl = tidy_sentence(rev) or tidy_sentence(orig)
+        if cl:
+            clean_orig.append(cl)
+        meta.append({"i": i, "type": typ, "note": as_text(sn.get("note")),
+                     "original": tidy_sentence(orig), "revised": tidy_sentence(rev),
+                     "skey": skey, "qa": qa_map.get(skey, [])})
+
+    # 句间自动补空格：span 之间没了空格，页面上 "company。The" 会粘在一起
+    html = ""
+    for i, p in enumerate(parts):
+        if not p:
+            continue
+        if html and not re.search(r"[\s>]$", html):
+            html += " "
+        html += p
+    html = re.sub(r"\s{2,}", " ", html).strip()
+
+    # 干净原文：句子去重 + 补句末标点
+    seen, deduped = set(), []
+    for s in clean_orig:
+        k = re.sub(r"\W+", "", s.lower())
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        deduped.append(s if s.rstrip()[-1:] in ".!?" else s + ".")
+    return html, meta, " ".join(deduped)
 
 
 def get_qa_map(essay_id):
@@ -1491,7 +1642,10 @@ def phrase_book():
                         it["suggestion"] = (cur + " ／ " + suggestion)[:260]
             # 讲解合并
             if note and note not in it["note"]:
-                it["note"] = (it["note"] + "　▸ " + note)[:520] if it["note"] else note[:520]
+                # 只把「这一条自己的那句」并进去：别的句子的讲解混进来会让
+                # 每个词下面都挂着同一大段话（用户反馈：太占地方）
+                if note not in as_text(it.get("note")):
+                    it["note"] = (it["note"] + "　▸ " + note)[:520] if it["note"] else note[:520]
             # 对比 / 同义关系合并
             if contrast and contrast not in it["contrast"]:
                 it["contrast"] = (it["contrast"] + " ／ " + contrast).strip(" ／")[:200]
@@ -1545,6 +1699,26 @@ def phrase_book():
                 push(w.get("english") or w.get("en"),
                      w.get("chinese") or w.get("zh"),
                      w.get("note") or "", e["id"], title, "wanted")
+
+    # 同义 / 对比 关系成对登记：A 标「同义 B」，B 也自动标「同义 A」，
+    # 省得靠讲解里两句话各自被抓到才连上
+    for it in items:
+        for tag, fld in (("same", "same_as"), ("contrast", "contrast")):
+            others = [x.strip() for x in re.split(r"[／/]", it[fld]) if x.strip()]
+            for other in others:
+                for jt in items:
+                    if jt is it:
+                        continue
+                    same = (jt["original"].lower() == other.lower())
+                    if not same and tag == "same":
+                        same = same_lexeme(jt["original"], other)
+                    if not same:
+                        continue
+                    cur = [x.strip() for x in re.split(r"[／/]", jt[fld]) if x.strip()]
+                    if not any(it["original"].lower() == x.lower() for x in cur):
+                        if jt[fld].strip() == it["original"].strip():
+                            continue
+                        jt[fld] = (jt[fld] + " ／ " + it["original"]).strip(" ／ ")[:200]
 
     # 分类：句型在前（最常看），然后短语、词汇、我想说
     order = {"pattern": 0, "phrase": 1, "word": 2, "wanted": 3}
