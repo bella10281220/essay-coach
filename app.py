@@ -33,7 +33,7 @@ def log(*args):
             pass
 
 
-VERSION = "3.14"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.15"   # 页脚显示，用于确认正在运行的是新版本
 
 
 def pick_port(default=5000, span=20):
@@ -1624,16 +1624,26 @@ def _render_views(segs, typ, i):
 
 
 def _note_bullets(note):
-    """把讲解拆成逐条 bullet：按分号/换行/「▸」切，切不出多条就整段返回。"""
+    """把讲解拆成逐条 bullet。
+
+    用户反馈（多轮）：原文 ⑧ 条写了三句讲解
+    「should 后面直接接动词原形，不加 to。/ do it, not just think about it 的意思是…/
+     这句话值得记下来…」，界面上只剩一句 `Remove 'to do' and 'just'.`。
+    → 这里**不许丢**：先按换行切（每条理由一行），再按句号切，
+      切完多少条就返回多少条，不做条数截断。
+    """
     note = as_text(note).strip()
     if not note:
         return []
-    segs = re.split(r"[；;\n]+|　▸", note)
-    segs = [x.strip(" ，,。 ") for x in segs if x.strip(" ，,。 ")]
-    if len(segs) <= 1:
-        segs = re.split(r"(?<=[。！？])", note)
-        segs = [x.strip() for x in segs if x.strip()]
-    return segs[:6]
+    # ① 优先按换行切：粘贴文本里一条理由一行，这是最可靠的分界
+    lines = [x.strip(" ．.，,；;") for x in note.splitlines() if x.strip(" ．.，,；;")]
+    # 粘贴文本里「一条理由一行」——一行就是一条，不再按句号二次切分，
+    # 否则「do it, not just think about it 的意思是…。这里的 not 不是…」
+    # 会被拆成两条，看着像两件事。
+    segs = [x for x in lines if x]
+    if not segs:
+        segs = [x.strip() for x in re.split(r"(?<=[。！？])", note) if x.strip()]
+    return segs
 
 
 def build_annotated(c, qa_map):
@@ -1735,7 +1745,11 @@ PARSE_PROMPT = """你是一位英语写作老师的数据整理助手。下面�
    - 长句/从句/倒装等复杂结构的修改 → "complex_kept"
    - 表扬的句子 → "good"
    注意区分学生的原句和 AI 的改句。**original 必须逐字复制学生的原句，一个词都不能改、不能合并、不能增删标点；revised 是修改后的完整句子**。
-2. note：**必须完整保留原文里给出的每一条理由**，逐条列出（可用 ①②③ 或换行分隔），一条都不许省略、不许概括成一句话。原文没给理由的才留空。
+2. note：**必须完整保留原文里给出的每一条理由**，逐条列出（用换行分隔，一条一行），一条都不许省略、不许概括、不许翻译成英文短句。原文没给理由的才留空。
+   ⛔ 反例（禁止）：原文写了三句中文理由「should 后面直接接动词原形，不加 to。/ do it, not just think about it 的意思是"去做，而不只是想"。…/ 这句话值得记下来，因为你已经尝试把听到的英语表达用在自己的文章里了。」
+      却只输出 `Remove 'to do' and 'just'.` —— 这是压缩，属于严重错误。
+   ✅ 正例：把三句中文原样、分行放进 note。
+   **只要原文出现了中文讲解，note 就必须是中文，且长度与原文相当。**
 3. vocab：**提取原文中提到的所有词汇/表达/固定短语建议**——只要批改里出现了"XX 应该用 YY"之类的内容，都要变成一条 {original, suggestion, note}，这是短语本的数据来源，宁多勿漏。
 4. version_current / version_advanced：如果原文中有整篇改写或两个版本就填入；只有一个版本就 version_current 填它、version_advanced 留空字符串；都没有则都留空。
 5. summary：用中文写一句总体评价（概括这段批改的核心结论）。score 给出合理的 1-10 分估计；error_count / optimize_count 按整理结果统计。
@@ -1749,6 +1763,16 @@ PARSE_PROMPT = """你是一位英语写作老师的数据整理助手。下面�
    - **绝不允许把 revised（改好的句子）当成 original**——original 是学生写错的版本，即使里面有语法错误也要逐字保留
    - 没有删除线标记、且原文与改写相同的句子才标 "good"
 9. vocab 除了词汇建议外，**还必须把结尾的"最值得带走的表达 / 好句"清单也收进来**：original 填英文表达本身，suggestion 填中文含义，note 填例句和使用说明。
+
+11. **可选优化也算条目**：原文讲解里出现「也可以用 XXX」「也可以说 XXX」「也可以写成 XXX」时，说明存在一个**替代写法**。
+    必须单独收一条 type="optimize" 的 sentences：
+      original = 上一句的改后句子（revised）
+      revised  = 把其中被替换的部分换成 XXX 之后的新句子
+      note     = 「可选优化（原批改里的替代写法）：XXX —— 原文是这么说的：<那句完整中文讲解>」
+    例：讲解里写「…也可以用 although writing something once can't change my life immediately。这是可选优化」
+        → 新增一条 optimize：original="…although it can't change my life immediately."，
+          revised="…although writing something once can't change my life immediately."
+    ⛔ 不许因为「这是可选的」就不收——用户明确要求把它作为可优化版本展示出来。
 10. 忽略寒暄、追问、与批改无关的内容。找不到任何批改信息时，sentences 给空数组并在 summary 说明。
 
 只输出 JSON：
@@ -1757,6 +1781,295 @@ PARSE_PROMPT = """你是一位英语写作老师的数据整理助手。下面�
  "vocab": [], "wanted_phrases": [],
  "version_current": "...", "version_advanced": "..."}
 """
+
+
+def _strip_strike(txt):
+    """把 ~~xx~~ 删除线标记拆成 (学生原句文本, 保留文本, 被划掉的部分列表)。
+
+    用户原文格式：`You should ~~to do~~ do it, ~~just~~ not just think about it.`
+      → 学生原句 = "You should to do do it, just not just think about it."
+      → 改后句子 = "You should do it, not just think about it."
+    """
+    orig, kept, struck = [], [], []
+    pos = 0
+    for m in re.finditer(r"~~(.+?)~~", txt, re.S):
+        head = txt[pos:m.start()]
+        if head.strip():
+            orig.append(head)
+            kept.append(head)
+        cut = m.group(1)
+        orig.append(cut)
+        if cut.strip():
+            struck.append(cut.strip())
+        pos = m.end()
+    tail = txt[pos:]
+    if tail.strip():
+        orig.append(tail)
+        kept.append(tail)
+
+    def _join(parts, drop_empty=False):
+        out = " ".join((" ".join(parts)).split())
+        out = re.sub(r"\s+([,.;:!?])", r"\1", out)
+        return out.strip(" ,;:")
+
+    return _join(orig), _join(kept), struck
+
+
+def _en_sentences(txt):
+    """从一段混排文本里挑出英文句子（含中文的行整行跳过）。"""
+    out = []
+    for line in as_text(txt).splitlines():
+        line = line.strip()
+        if not line or re.search(r"[\u4e00-\u9fff]", line):
+            continue
+        for s in re.split(r"(?<=[.!?])\s+", line):
+            s = s.strip()
+            if len(re.findall(r"[A-Za-z']+", s)) >= 3:
+                out.append(s)
+    return out
+
+
+# 编号标记：①~⑳ / ❶-❿ / ⑴⑵ / 1. 2) 3、
+_NUM_MARK = re.compile(r"^\s*([①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
+                       r"|❶|❷|❸|❹|❺|❻|❼|❽|❾|❿"
+                       r"|⑴|⑵|⑶|⑷|⑸|⑹|⑺|⑻|⑼|⑽"
+                       r"|\d{1,2}\s*[.、)）])\s*")
+
+
+def _split_numbered(core):
+    """按行首编号把整段切成 [(编号, 该条正文)]；没有编号就整段算一条。"""
+    blocks, cur = [], None
+    for line in core.splitlines():
+        m = _NUM_MARK.match(line)
+        if m:
+            if cur:
+                blocks.append(cur)
+            cur = [line[m.end():].strip()]
+        elif cur is not None:
+            cur.append(line.rstrip())
+    if cur:
+        blocks.append(cur)
+    return [("\n".join(b)).strip() for b in blocks if "\n".join(b).strip()]
+
+
+def _type_of(head, body):
+    """从标题行判断类型。
+
+    注意标题可能是复合的：`A 类｜语法错误；保留你学到的句式`——
+    既有「语法错误」又有「保留」，这里**语法/用词错误优先**，
+    因为学生真写错了；「保留句式」只是说明没把复杂句简化掉。
+    """
+    h = (head or "").strip()
+    if re.search(r"表扬|写得好|无需修改|no change|good job|做得好|👍", h, re.I):
+        return "good"
+    if re.search(r"语法和用词|用词优化|优化|更地道|更自然|可选", h):
+        return "optimize"
+    if re.search(r"错误|拼写|语法|时态|一致|搭配", h):
+        return "error"
+    if re.search(r"保留|复杂句|从句|让步|亮点", h):
+        return "complex_kept"
+    return ""
+
+
+def rule_parse_import(raw):
+    """AI 不可用时的兜底：按 ①②③ 编号 / '原句 → 修改' 结构做规则化拆分。
+
+    实测格式（用户粘贴的批改原文）：
+        ⑧ A 类｜语法错误；保留你学到的句式
+        When I saw a YouTuber, he said a sentence like this. You should ~~to do~~ do it, ~~just~~ not just think about it.
+        should 后面直接接动词原形，不加 to。
+        do it, not just think about it 的意思是"去做，而不只是想"。……
+        这句话值得记下来，因为你已经尝试把听到的英语表达用在自己的文章里了。
+
+    要点（用户反馈的核心）：
+      ① note 必须**整段保留**每一条理由，不能只留第一句；
+      ② `~~xx~~` 是学生被划掉的部分 → original 含它，revised 不含它；
+      ③ 讲解里「也可以用 XXX」是**可选优化**，要单独收成 optimize 条目。
+    """
+    text = raw or ""
+    m = re.search(r"[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮❿❶]", text)
+    core = text[m.start():] if m else text
+
+    # 0) 「最值得带走的 N 个表达」清单单独切出去，别混进逐句讲解
+    vm = re.search(r"[🌱🌾🌸🍀✨💡]?\s*最值得[^\n]*", core)
+    vocab_sec, body = "", core
+    if vm:
+        vocab_sec, body = core[vm.start():], core[:vm.start()]
+
+    # 1) 提取清单
+    vocab = []
+    for vm2 in re.finditer(
+            r"(?:^|\n)\s*\d{1,2}\s*[.、)）]\s*([A-Za-z][^\n]{2,70})\n+\s*([^\n]+)",
+            vocab_sec or core):
+        eng, zh = vm2.group(1).strip(), vm2.group(2).strip()
+        if re.search(r"[\u4e00-\u9fff]", zh) and len(eng) < 70:
+            vocab.append({"original": eng[:70], "suggestion": zh[:90], "note": ""})
+
+    # 2) 按编号切条
+    sentences, opts = [], []
+    for blk in _split_numbered(body):
+        lines = [l for l in blk.splitlines() if l.strip()]
+        if not lines:
+            continue
+        head = lines[0]
+        # 标题行 = 第一行里没有英文句子、且含 A/B 类、｜ 等
+        is_head = bool(re.match(
+            r"^\s*(?:[A-Za-z]\s*类|类型|[^\n]{0,8}｜|错误|表扬|语法|用词|拼写|优化|保留)", head)) \
+            and not re.search(r"[A-Za-z]{3,}\s+[A-Za-z]{3,}", head)
+        typ_from_head = _type_of(head, blk) if is_head else ""
+        rest = lines[1:] if is_head else lines
+
+        note_lines, en_lines = [], []
+        for ln in rest:
+            if re.search(r"[\u4e00-\u9fff]", ln):
+                note_lines.append(ln)
+            else:
+                en_lines.append(ln)
+        note = "\n".join(note_lines).strip()
+        note = re.sub(r"\n{2,}", "\n", note)
+
+        # ── 英文部分 ──
+        #   a) 整句行（≥4 个词、句末有标点）= 学生原句，优先取带 ~~ 的那种
+        #   b) 短对照行（`decided → decided to` / `a content → something` /
+        #      `Use 'didn't' instead of 'didnt'.`）= 词汇级建议，交给 vocab
+        def _is_full_sentence(ln):
+            """整句判定：≥4 个词、有句末标点，且**不像**「A → B」式的词汇对照。"""
+            txt_ = re.sub(r"~~", "", ln).strip()
+            if re.search(r"→|->|=>|\binstead of\b|改成|改为", txt_, re.I):
+                return False
+            if len(re.findall(r"[A-Za-z']+", txt_)) < 4:
+                return False
+            return re.search(r"[.!?]\s*$", txt_) is not None
+
+        orig, rev, struck = "", "", []
+        for ln in en_lines:
+            if "~~" in ln and _is_full_sentence(ln):
+                o, k, st = _strip_strike(ln)
+                if len(re.findall(r"[A-Za-z']+", o)) >= 4:
+                    orig, rev, struck = o, k, st
+                    break
+        if not orig:
+            for ln in en_lines:
+                if not _is_full_sentence(ln):
+                    continue
+                o, k, st = _strip_strike(ln)
+                if re.search(r"no changes? needed", o, re.I):
+                    o = re.sub(r"no changes? needed[^.]*\.?\s*", "", o, flags=re.I).strip()
+                orig = o
+                break
+            if orig and re.search(r"no changes? needed|无需修改", blk, re.I):
+                rev = ""
+        if orig and rev and tidy_sentence(orig) == tidy_sentence(rev):
+            rev = ""
+
+        # ── 短对照行 → vocab 建议（②③④⑤ 这类「改掉哪个词」的条目）──
+        arrow_pairs = []
+        for ln in en_lines:
+            if _is_full_sentence(ln):
+                continue
+            # 形式一：`~~my English soul~~ my English`（删除线版对照，没有箭头）
+            sm_ = re.match(r"^\s*~~(?P<a>[^~]{2,60})~~(?P<rest>.*)$", ln)
+            if sm_:
+                a_ = sm_.group("a").strip()
+                rest_ = re.sub(r"^\s*(?:→|->|=>)\s*", "", sm_.group("rest") or "").strip()
+                b_ = rest_ if re.match(r"^[A-Za-z]", rest_ or "-") else ""
+                if b_ and b_.lower() != a_.lower():
+                    arrow_pairs.append((a_, b_, True))    # True = 来自删除线，最可信
+                continue
+            for am in re.finditer(
+                    r"~~?(?P<a>[A-Za-z][A-Za-z' \-]{0,40}?)~~?\s*(?:→|->|=>|改成|改为)\s*"
+                    r"~~?(?P<b>[A-Za-z][A-Za-z' \-]{0,40}?)~~?(?=[\s,;。]|$)", ln):
+                a, b = am.group("a").strip(), am.group("b").strip()
+                if a.lower() != b.lower() and len(a) > 1:
+                    arrow_pairs.append((a, b, False))
+            um = re.search(r"Use\s+'?([^'’]+)'?\s+instead of\s+'?([^'’.]+)'?", ln, re.I)
+            if um:
+                arrow_pairs.append((um.group(2).strip(), um.group(1).strip(), False))
+        for a, b, _st in arrow_pairs:
+            if not any(v["original"].lower() == a.lower() for v in vocab):
+                vocab.append({"original": a, "suggestion": b,
+                              "note": note.splitlines()[0] if note else ""})
+
+        # 整条只有词汇对照（`~~didnt~~ didn't` / `~~a content~~ something`）：
+        # 学生原句里本来就带着这些错词，这里把它还原成「原词 → 改后词」的对照条目
+        if not orig and arrow_pairs:
+            # 优先用**删除线标注**的那一对（`~~didnt~~ didn't`）——
+            # `Use 'X' instead of 'Y'` 只是同义复述，方向和原文不一定一致。
+            pick = next((x for x in arrow_pairs if x[2]), arrow_pairs[0])
+            a0, b0 = pick[0], pick[1]
+            a0 = re.sub(r"~~", "", a0).strip()
+            b0 = re.sub(r"~~", "", b0).strip()
+            sentences.append({"original": a0[:400],
+                              "type": typ_from_head or "error",
+                              "revised": b0[:400],
+                              "note": note[:1200]})
+            continue
+        if not orig:
+            continue
+        typ = typ_from_head or ("good" if not rev else "error")
+        if not rev and typ != "good":
+            typ = "good"
+        sentences.append({"original": orig[:400], "type": typ,
+                          "revised": rev[:400], "note": note[:1200]})
+
+        # ── 「也可以用 XXX」→ 单独收一条 optimize ──
+        for om in re.finditer(r"(?:也可以用|也可以说|也可以写成|还可说|换成)\s*([A-Za-z][^。\n]{8,200}?)\s*(?:[。，,；;]|$)", note):
+            alt = om.group(1).strip().strip(",. ;")
+            alt = re.sub(r"\s+", " ", alt)
+            if len(re.findall(r"[A-Za-z']+", alt)) < 3:
+                continue
+            # 替代说法本身作为 revised：把原句里对应的从句换掉
+            new_rev = rev or orig
+            key = ""
+            for cand in [rev, orig]:
+                for phrase in re.findall(r"although[^,.]*", cand or "", re.I):
+                    key = phrase
+                    break
+                if key:
+                    break
+            if key:
+                new_rev = new_rev.replace(key, alt)
+            if new_rev.strip() and tidy_sentence(new_rev) != tidy_sentence(rev or orig):
+                # 只取包含这个替代说法的那一句讲解（找不到就只写替代写法本身）
+                src = ""
+                for u in re.split(r"[。\n]+", note):
+                    if alt[:25].lower() in u.lower():
+                        src = u.strip()
+                        break
+                nn = f"可选优化，不是必须改：{src}" if src else f"可选优化，不是必须改：也可以用 {alt}"
+                opts.append({"original": (rev or orig)[:400], "type": "optimize",
+                             "revised": new_rev.strip()[:400], "note": nn[:900]})
+
+    sentences.extend(opts)
+
+    # 3) 参考版本（"修改后的参考版本" 之后、第一个中文小标题之前）
+    ver = ""
+    vm3 = re.search(r"(?:修改后的参考版本|参考版本)[^\n]*\n(.*?)(?:\n[^\x00-\x7F]|\Z)", core, re.S)
+    if vm3:
+        ver = vm3.group(1).strip()[:4000]
+    if not ver:
+        cand = [s["revised"] for s in sentences if s["type"] != "good" and s["revised"]]
+        if cand:
+            ver = " ".join(cand)[:4000]
+
+    if not sentences:
+        return None
+
+    # 4) 标题
+    tm = re.search(r"(?:第[一二三四五六七八九十]+篇)[｜|]\s*(.+)", core)
+    title = tm.group(1).strip()[:30] if tm else ""
+
+    return {"summary": "（AI 未连接，以下为规则整理，建议连上 AI 后点「重新整理」获得更完整的讲解）",
+            "score": 0,
+            "error_count": len([s for s in sentences if s["type"] == "error"]),
+            "optimize_count": len([s for s in sentences if s["type"] == "optimize"]),
+            "book_title": title,
+            "sentences": sentences,
+            "vocab": vocab,
+            "wanted_phrases": [],
+            "version_current": ver,
+            "version_advanced": "",
+            "demo": True}
 
 
 def _fix_parsed(data, raw):
@@ -1783,6 +2096,12 @@ def _fix_parsed(data, raw):
             continue
         if rev and tidy_sentence(orig) != tidy_sentence(rev):
             continue          # 正常条目：原句与改句不同
+        # 词/短语级对照条目（`didnt → didn't`、`a content → something`）本来就不成句，
+        # 原句与改句当然可能「看起来差不多」，不要当成异常去回捞。
+        # 注意 `didnt` 会被 tidy_sentence 自动规范成 `didn't`，所以这里要拿 raw 原文比。
+        if len(re.findall(r"[A-Za-z']+", orig)) <= 4 and rev \
+                and orig.strip().lower() != rev.strip().lower():
+            continue
         # 异常条目：尝试回捞
         rl = re.sub(r"\W+", "", rev.lower() or orig.lower())
         best, best_r = "", 0.0
@@ -1790,7 +2109,10 @@ def _fix_parsed(data, raw):
             r = _dl.SequenceMatcher(None, re.sub(r"\W+", "", u.lower()), rl).ratio()
             if r > best_r:
                 best, best_r = u, r
-        if best and best_r > 0.55 and tidy_sentence(best) != tidy_sentence(rev):
+        # 回捞到的必须像一句完整的话：词级对照（`didnt`）别被整行 `~~didnt~~ didn't` 污染
+        if best and best_r > 0.55 and "~~" not in best \
+                and tidy_sentence(best) != tidy_sentence(rev) \
+                and len(re.findall(r"[A-Za-z']+", best)) >= 4:
             s["original"] = best          # 从原始文本找回的学生原句
         else:
             # 找不回 → 至少别标「错误」却没有任何改动
@@ -1811,7 +2133,69 @@ def _fix_parsed(data, raw):
         if v:
             data["vocab"] = v
 
-    # ③ 计数与实际条目一致
+    # ③ note 被 AI 压缩成英文短句 → 从原始粘贴文本里把中文讲解回捞出来
+    #    用户反馈：原文 ⑧⑨ 条写了整段中文理由，页面上只剩
+    #    "Remove 'to do' and 'just'." 这种压缩句，下半部分讲解全丢。
+    raw_txt = as_text(raw)
+    raw_blocks = {}
+    for blk in _split_numbered(raw_txt):
+        lines = [l.strip() for l in blk.splitlines() if l.strip()]
+        if not lines:
+            continue
+        head, rest = lines[0], lines[1:]
+        cn = [l for l in rest if re.search(r"[\u4e00-\u9fff]", l)
+              and not re.match(r"^\s*[🌱🌾🌸🍀✨💡]?\s*最值得", l)]
+        # 英文锚点行：只要含删除线（整句或 `~~didnt~~ didn't` 这种单词对照都算）
+        en = [l for l in rest if "~~" in l]
+        if not en:
+            en = [l for l in rest if re.search(r"[A-Za-z]{3,}", l)]
+        if not cn or not en:
+            continue
+        # 建索引时把每个英文锚点行都挂上，容错更高
+        for ln in en[:3]:
+            key = re.sub(r"\W+", "", re.sub(r"~~", "", ln).lower())[:60]
+            if key:
+                raw_blocks[key] = "\n".join(cn)
+    for s_ in as_list(data.get("sentences")):
+        if not isinstance(s_, dict):
+            continue
+        if as_text(s_.get("type")) == "good":
+            continue
+        # 可选优化条目的讲解是专门写的，不参与回捞覆盖
+        if "可选优化" in as_text(s_.get("note")):
+            continue
+        orig_r = as_text(s_.get("original"))
+        tgt = re.sub(r"\W+", "", re.sub(r"~~", "", orig_r).lower())
+        full_cn = ""
+        if tgt and tgt in raw_blocks:
+            full_cn = raw_blocks[tgt]
+        if not full_cn:
+            # 前缀匹配：条目的 original 常常只是整句的一部分（`decided`、`a content`）
+            # ⚠️ 只能「锚点以条目开头」，不能反过来「条目包含在锚点里」——
+            #    否则 `decided` 会命中第①条整句的锚点，讲解串台到别的句子。
+            best_len = 0
+            for k2, v2 in raw_blocks.items():
+                if k2 and tgt and k2.startswith(tgt[:40]) and len(k2) > best_len:
+                    full_cn, best_len = v2, len(k2)
+        if not full_cn and len(tgt) >= 12:
+            # 最后才用相似度兜底
+            best, best_r = "", 0.0
+            for k2, v2 in raw_blocks.items():
+                r_ = _dl.SequenceMatcher(None, k2, tgt[:60]).ratio()
+                if r_ > best_r:
+                    best, best_r = v2, r_
+            if best_r > 0.6:
+                full_cn = best
+        cur_note = as_text(s_.get("note"))
+        if not full_cn:
+            continue
+        cur_cn = len(re.findall(r"[\u4e00-\u9fff]", cur_note))
+        full_n = len(full_cn)
+        # AI 给的说明明显比原文短（丢了理由）→ 用原文整段替换
+        if cur_cn < full_n * 0.7:
+            s_["note"] = full_cn[:1500]
+
+    # ④ 计数与实际条目一致
     sents = as_list(data.get("sentences"))
     data["error_count"] = len([s for s in sents if isinstance(s, dict) and s.get("type") == "error"])
     data["optimize_count"] = len([s for s in sents if isinstance(s, dict) and s.get("type") == "optimize"])
@@ -2544,93 +2928,6 @@ else{tip.innerHTML='__ZH_OK3__'+link;}})
     js = " ".join(tpl.split())  # 压掉换行，保证是一行 URL
     return "javascript:" + js.replace("'", "%27").replace('"', "%22")
 
-
-def rule_parse_import(raw):
-    """AI 不可用时的兜底：按 ①②③ 编号 / '原句 → 修改' 结构做规则化拆分"""
-    text = raw or ""
-    # 去掉开头的对话寒暄与原文引用块（保留"①"之后的内容）
-    m = re.search(r"[①❶1][\s\.、]", text)
-    core = text[m.start():] if m else text
-
-    # 1) 提取 "最值得带走/值得记住 的 N 个表达"
-    vocab = []
-    for vm in re.finditer(r"(\d+)[.、]\s*([A-Za-z][A-Za-z' \-]{2,60})\s*\n+\s*([^\n]+)", core):
-        eng, zh = vm.group(2).strip(), vm.group(3).strip()
-        if re.search(r"[\u4e00-\u9fff]", zh) and len(eng) < 60:
-            vocab.append({"original": eng, "suggestion": zh[:60], "note": ""})
-
-    # 2) 按 ①②③ 切段
-    parts = re.split(r"(?=[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮])", core)
-    sentences = []
-    for p in parts:
-        p = p.strip()
-        if not p or p[0] not in "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮":
-            continue
-        # 去掉编号与"X 类｜..."标题行
-        body = re.sub(r"^[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮]\s*", "", p)
-        lines = [l.strip() for l in body.splitlines() if l.strip()]
-        if not lines:
-            continue
-        head = lines[0]
-        typ = "error"
-        if "优化" in head or "自然" in head:
-            typ = "optimize"
-        elif "保留" in head:
-            typ = "complex_kept"
-        # 讲解 = 剩余的说明行
-        note = "\n".join(lines[1:])
-        # 行内改词：形如 "原句 <新句>" 相邻出现，取最接近的一对
-        engs = re.findall(r"[A-Za-z][A-Za-z',\.\!\?\-\s]{6,200}", body)
-        engs = [" ".join(e.split()) for e in engs if len(e.split()) >= 3]
-        engs = [e.strip(" ,.") for e in engs]
-        orig, rev = "", ""
-        if len(engs) >= 2:
-            # 相邻两段里，选"前短后长/前错后对"最像改写的一对
-            best, best_score = None, -1
-            for a, b in zip(engs, engs[1:]):
-                if a.lower() == b.lower():
-                    continue
-                # 相似度越高越像"同一句的改写"
-                import difflib as _dl
-                sim = _dl.SequenceMatcher(None, a.lower(), b.lower()).ratio()
-                score = sim * 100 + len(b.split())
-                if score > best_score:
-                    best_score, best = score, (a, b)
-            if best:
-                orig, rev = best
-        elif len(engs) == 1:
-            orig = engs[0]
-        if not orig:
-            continue
-        # 改写句与原文几乎一样 → 视为「无需修改」，不重复展示
-        if rev and rev.lower() == orig.lower():
-            rev = ""
-        sentences.append({"original": orig[:300], "type": typ,
-                          "revised": rev[:300], "note": note[:600]})
-
-    # 3) 参考版本（"修改后的参考版本" 之后、第一个中文小标题之前）
-    ver = ""
-    vm = re.search(r"(?:修改后的参考版本|参考版本)[^\n]*\n(.*?)(?:\n[^\x00-\x7F]|\Z)", core, re.S)
-    if vm:
-        ver = vm.group(1).strip()[:4000]
-
-    if not sentences:
-        return None
-
-    # 4) 标题
-    tm = re.search(r"(?:第[一二三四五六七八九十]+篇)[｜|]\s*(.+)", core)
-    title = tm.group(1).strip()[:30] if tm else ""
-
-    return {"summary": "（AI 未连接，以下为规则整理，建议连上 AI 后点「重新整理」获得更完整的讲解）",
-            "score": 0,
-            "error_count": len([s for s in sentences if s["type"] == "error"]),
-            "optimize_count": len([s for s in sentences if s["type"] == "optimize"]),
-            "book_title": title,
-            "sentences": sentences,
-            "vocab": vocab,
-            "wanted_phrases": [],
-            "version_current": ver,
-            "version_advanced": ""}
 
 
 def try_auto_parse(essay_id, content):

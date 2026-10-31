@@ -51,7 +51,8 @@
   <div class="card">
     <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
       <div style="font-size:13px;color:var(--sub)">
-        <span class="lg"><i class="dot ins-error"></i>红色 = 本次修改的地方，点击直接展开这句的讲解</span>
+        <span class="lg"><i class="dot ins-error"></i><b style="color:#2e9e5b">绿色</b> = 改后的新写法（红色 = 被改掉的原写法）</span>
+        <span class="lg" style="margin-left:14px">点击带颜色的词，直接展开这句的讲解</span>
       </div>
       <div>
         <span class="badge score">{{ c.score }}/10</span>
@@ -172,7 +173,7 @@
 .hl-ins.tight{padding:0;border-radius:2px}
 .hl-opt.tight{padding:0;border-radius:2px}
 .hl-del{background:#e05252;color:#fff;border-radius:4px;padding:0 4px;cursor:pointer}
-.hl-ins{background:#e05252;color:#fff;border-radius:4px;padding:0 4px;cursor:pointer;font-weight:600}
+.hl-ins{background:#2e9e5b;color:#fff;border-radius:4px;padding:0 4px;cursor:pointer;font-weight:600}
 .hl-opt-old{background:none;color:#b07a1f;border-bottom:2px dotted #e9b970;cursor:pointer}
 .hl-opt{background:#e0762f;color:#fff;border-radius:4px;padding:0 4px;cursor:pointer;font-weight:600}
 .fix-notes{margin:10px 0 0;padding-left:20px;font-size:13.5px;color:var(--ink);line-height:1.9}
@@ -194,7 +195,7 @@
 .lg{margin-right:14px;display:inline-flex;align-items:center;gap:5px}
 .dot{width:12px;height:12px;border-radius:3px;display:inline-block}
 .dot.del{background:#e05252}
-.dot.ins-error{background:#e05252}
+.dot.ins-error{background:#2e9e5b}
 .dot.ins-optimize{background:#e0762f}
 .dt-tag{font-size:11px;color:#fff;border-radius:8px;padding:2px 9px}
 
@@ -202,6 +203,8 @@
 .dbox.orig{background:#fdecec}
 .dbox.rev{background:#fff5f2}
 .dbox.good{background:#f4faf7}
+.dnotes{margin:6px 0 0;padding-left:20px;color:#3d4a44;font-size:14.5px;line-height:1.9}
+.dnotes li{margin:2px 0}
 .sh-detail{margin-top:14px;border:1px solid var(--line);border-left:4px solid #e05252;border-radius:10px;padding:14px 16px;background:#fff}
 </style>
 
@@ -230,10 +233,17 @@ function showDetail(i){
        + '<span style="font-size:12px;color:var(--sub)">（红色 = 改掉的地方）</span></p>'
        + '<div class="dbox orig">'+(s.origHtml||esc(s.original))+'</div>';
     h += '<p style="margin:10px 0 4px"><b>改为：</b>'
-       + '<span style="font-size:12px;color:var(--sub)">（红色 = 新的写法）</span></p>'
+       + '<span style="font-size:12px;color:var(--sub)">（绿色 = 新的写法）</span></p>'
        + '<div class="dbox rev">'+(s.revHtml||esc(s.revised))+'</div>';
   }
-  h += '<p style="color:var(--sub);font-size:14px;margin:10px 0 0">' + esc(s.note) + '</p>';
+  // 讲解：一条一行显示（用户反馈：整段糊成一句话，看着像只讲了一句）
+  var bl = (s.bullets && s.bullets.length) ? s.bullets : (s.note ? [s.note] : []);
+  if (bl.length){
+    h += '<div style="margin:12px 0 0"><b style="font-size:14px">为什么这么改：</b>'
+       + '<ul class="dnotes">';
+    bl.forEach(function(x){ h += '<li>' + esc(x) + '</li>'; });
+    h += '</ul></div>';
+  }
   document.getElementById('detail-body').innerHTML = h;
   var ql = document.getElementById('qlist');
   ql.innerHTML = '';

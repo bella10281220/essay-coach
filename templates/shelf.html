@@ -134,7 +134,7 @@
 .hl-ins.tight{padding:0;border-radius:2px}
 .hl-opt.tight{padding:0;border-radius:2px}
 .hl-del{background:#e05252;color:#fff;border-radius:4px;padding:0 4px}
-.hl-ins{background:#e05252;color:#fff;border-radius:4px;padding:0 4px;font-weight:600}
+.hl-ins{background:#2e9e5b;color:#fff;border-radius:4px;padding:0 4px;font-weight:600}
 .hl-opt-old{background:none;color:#b07a1f;border-bottom:2px dotted #e9b970}
 .hl-opt{background:#e0762f;color:#fff;border-radius:4px;padding:0 4px;font-weight:600}
 .fix-notes{margin:10px 0 0;padding-left:20px;font-size:13.5px;color:var(--ink);line-height:1.9}
@@ -218,7 +218,7 @@ function shShowDetail(bookId, idx){
   } else {
     h += '<p style="margin:10px 0 4px"><b>原句：</b><span style="font-size:12px;color:#9aa">（红色 = 改掉的地方）</span></p>'
        + '<div class="dbox orig">' + s.orig_html + '</div>'
-       + '<p style="margin:10px 0 4px"><b>改为：</b><span style="font-size:12px;color:#9aa">（红色 = 新的写法）</span></p>'
+       + '<p style="margin:10px 0 4px"><b>改为：</b><span style="font-size:12px;color:#9aa">（绿色 = 新的写法）</span></p>'
        + '<div class="dbox rev">' + s.rev_html + '</div>';
   }
   if (s.bullets && s.bullets.length){
