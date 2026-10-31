@@ -33,7 +33,7 @@ def log(*args):
             pass
 
 
-VERSION = "3.9"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.10"   # 页脚显示，用于确认正在运行的是新版本
 
 
 def pick_port(default=5000, span=20):
@@ -1026,7 +1026,7 @@ def shelf():
             "SELECT * FROM essays WHERE corrected=1 ORDER BY id DESC").fetchall():
         c = safe_correction(e["correction"])
         adv = as_text(c.get("version_advanced")).strip()
-        annotated, _, clean_orig = build_annotated(c, {}) if c else ("", [], "")
+        annotated, _, clean_orig, _cards = build_annotated(c, {}) if c else ("", [], "", [])
         clean_text = clean_book_text(c, e["content"])
         # 导入的文章常没有 version_current，clean_book_text 会退回用户粘贴的
         # 「原文+删除线+讲解」混杂文本。这时改用逐句拼出来的干净原文。
@@ -1113,9 +1113,9 @@ def essay(essay_id):
         return "作文不存在", 404
     correction = safe_correction(e["correction"])
     qa_map = get_qa_map(essay_id)
-    annotated, annot_meta, clean_orig = ("", [], "")
+    annotated, annot_meta, clean_orig, sent_cards = ("", [], "", [])
     if correction:
-        annotated, annot_meta, clean_orig = build_annotated(correction, qa_map)
+        annotated, annot_meta, clean_orig, sent_cards = build_annotated(correction, qa_map)
     # 当前水平版 / 进阶版统一走清洗，避免把"原文+讲解"大杂烩直接端出来
     clean_cur = clean_book_text(correction, e["content"]) if correction else ""
     # 没有 version_current（粘贴导入的常见情况）→ 用逐句拼出来的干净原文
@@ -1126,6 +1126,7 @@ def essay(essay_id):
     ) if correction else ""
     return render_template("essay.html", e=e, c=correction,
                            annotated=annotated, annot_meta=annot_meta,
+                           sent_cards=sent_cards,
                            qa_map=qa_map, clean_cur=clean_cur, clean_adv=clean_adv)
 
 
@@ -1438,15 +1439,63 @@ def inline_diff_words(original, revised):
     return merged
 
 
-def build_annotated(c, qa_map):
-    """生成整篇批改 HTML + 每句元数据（供点击详情/追问）
+def _render_views(segs, typ, i):
+    """把同一份 diff 片段渲染成「原文视图」和「修改视图」两份 HTML。
 
-    同时返回「干净原文」——把 sentences 里的 original 逐句拼起来。
-    导入的文章常常没有 version_current，以前只能退回用户粘贴的
-    「原文+删除线+AI 讲解」大杂烩，书架和当前水平版全是乱的。
+    原文视图：same + del（被改错/删掉的字母标红）；
+    修改视图：same + ins（改对/新加的字母标绿）。
+    optimize（可优化）原词不标红，新词标橙——「原句没错，这样更好」。
+    """
+    def esc(t):
+        return html_mod.escape(t)
+
+    def wrap(kind, txt, view):
+        cls = None
+        if view == "orig":
+            if kind == "del":
+                cls = "hl-del" if typ == "error" else "hl-opt-old"
+            elif kind == "ins":
+                return ""
+        else:  # rev
+            if kind == "ins":
+                cls = "hl-ins" if typ == "error" else "hl-opt"
+            elif kind == "del":
+                return ""
+        if not cls:
+            return esc(txt)
+        return f'<span class="{cls}" onclick="showDetail({i})">{esc(txt)}</span>'
+
+    orig_html = "".join(wrap(k, t, "orig") for k, t in segs if t)
+    rev_html = "".join(wrap(k, t, "rev") for k, t in segs if t)
+    # 空白规范化（span 移除后可能留双空格）
+    orig_html = re.sub(r"[ \t]{2,}", " ",
+                       re.sub(r"</span> <span[^>]*>", " ", orig_html)).strip()
+    rev_html = re.sub(r"[ \t]{2,}", " ",
+                      re.sub(r"</span> <span[^>]*>", " ", rev_html)).strip()
+    return orig_html, rev_html
+
+
+def _note_bullets(note):
+    """把讲解拆成逐条 bullet：按分号/换行/「▸」切，切不出多条就整段返回。"""
+    note = as_text(note).strip()
+    if not note:
+        return []
+    segs = re.split(r"[；;\n]+|　▸", note)
+    segs = [x.strip(" ，,。 ") for x in segs if x.strip(" ，,。 ")]
+    if len(segs) <= 1:
+        segs = re.split(r"(?<=[。！？])", note)
+        segs = [x.strip() for x in segs if x.strip()]
+    return segs[:6]
+
+
+def build_annotated(c, qa_map):
+    """生成整篇批改 HTML + 逐句卡片数据 + 每句元数据（供点击详情/追问）
+
+    返回 (全文行内 HTML, meta, 干净原文, 逐句卡片列表)。
+    卡片含原文视图（错处标红）/ 修改视图（改对标绿）/ 讲解 bullet 列表。
     """
     c = c if isinstance(c, dict) else {}
-    meta, parts, clean_orig = [], [], []
+    meta, parts, clean_orig, cards = [], [], [], []
     sentences = [x for x in as_list(c.get("sentences")) if isinstance(x, dict)]
     for i, sn in enumerate(sentences):
         orig = as_text(sn.get("original"))
@@ -1459,9 +1508,8 @@ def build_annotated(c, qa_map):
             segs = [("same", tidy_sentence(orig))]
         else:
             segs = inline_diff_words(orig, rev)
-        # 拼接句子 HTML：只有 error（真正用错）才划掉；
-        # optimize / complex_kept 原词保留不划线，彩色字给出更好表达
-        # 片段自带前导空白，直接拼即可——不做任何空格猜测
+
+        # ── 行内混排视图（备用/书架用） ──
         html_parts = []
         for kind, txt in segs:
             if not txt:
@@ -1476,6 +1524,13 @@ def build_annotated(c, qa_map):
             else:
                 html_parts.append(esc)
         parts.append("".join(html_parts))
+
+        # ── 逐句卡片：原文视图 + 修改视图 ──
+        orig_html, rev_html = _render_views(segs, typ, i)
+        cards.append({"i": i, "type": typ,
+                      "orig_html": orig_html, "rev_html": rev_html,
+                      "original": tidy_sentence(orig), "revised": tidy_sentence(rev),
+                      "bullets": _note_bullets(sn.get("note"))})
 
         # 干净原句：优先 revised（改对的句子），没有就用清洗过的原句
         cl = tidy_sentence(rev) or tidy_sentence(orig)
@@ -1506,7 +1561,7 @@ def build_annotated(c, qa_map):
             continue
         seen.add(k)
         deduped.append(s if s.rstrip()[-1:] in ".!?" else s + ".")
-    return html, meta, " ".join(deduped)
+    return html, meta, " ".join(deduped), cards
 
 
 def get_qa_map(essay_id):

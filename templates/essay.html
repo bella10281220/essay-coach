@@ -40,21 +40,20 @@
 {% if c %}
 <div class="tabs">
   <button class="active" onclick="showTab('full',this)">📝 全文批改</button>
-  <button onclick="showTab('sent',this)">逐句卡片</button>
   <button onclick="showTab('cur',this)">当前水平版</button>
   <button onclick="showTab('adv',this)">进阶版</button>
   <button onclick="showTab('wished',this)">我想说的话</button>
 </div>
 
-<!-- ═══ 全文批改（默认）：原文 + 划线改字，点击看讲解 ═══ -->
+<!-- ═══ 全文批改（默认）：逐句卡片——原文(错处标红) → 修改(改对标绿) + 讲解 ═══ -->
 <div id="tab-full">
   <div class="card">
-    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
       <div style="font-size:13px;color:var(--sub)">
-        <span class="lg"><i class="dot del"></i>划掉 = 用错了</span>
-        <span class="lg"><i class="dot ins-error"></i>绿色字 = 改正</span>
-        <span class="lg"><i class="dot ins-optimize"></i>橙色字 = 更好的表达（原词不划掉）</span>
-        <span class="lg">点击彩色文字查看讲解</span>
+        <span class="lg"><i class="dot del"></i>红底 = 改掉的地方</span>
+        <span class="lg"><i class="dot ins-error"></i>改后的词 = 改正后的</span>
+        <span class="lg"><i class="dot ins-optimize"></i>橙框 = 可优化的建议</span>
+        <span class="lg">点击彩色文字可追问</span>
       </div>
       <div>
         <span class="badge score">{{ c.score }}/10</span>
@@ -62,7 +61,40 @@
         <span class="badge opt">可优化 {{ c.optimize_count }}</span>
       </div>
     </div>
-    <div class="essay-body">{{ annotated|safe }}</div>
+    {% if c.summary %}<p style="color:var(--sub);font-size:14px;margin:0 0 14px">{{ c.summary }}</p>{% endif %}
+
+    {% for s in sent_cards %}
+    <div class="fix-card">
+      <div class="fix-no">第 {{ loop.index }} 句
+        <span class="dt-tag badge {{ {'error':'err','optimize':'opt','complex_kept':'mint','good':'score'}[s.type] }}" style="margin-left:6px">
+          {{ {'error':'错误','optimize':'可优化','complex_kept':'复杂句·已保留','good':'写得好'}[s.type] }}
+        </span>
+      </div>
+      {% if s.type == 'good' %}
+        <div class="fix-box orig good-only">{{ s.orig_html|safe }}</div>
+      {% else %}
+      <div class="fix-label">原文</div>
+      <div class="fix-box orig">{{ s.orig_html|safe }}</div>
+      <div class="fix-label">修改</div>
+      <div class="fix-box revised">{{ s.rev_html|safe }}</div>
+      {% endif %}
+      {% if s.bullets %}
+      <ul class="fix-notes">
+        {% for b in s.bullets %}<li>{{ b }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+      <div class="fix-ask"><a href="javascript:void(0)" onclick="showDetail({{ s.i }})">对这句提问 / 查看详情 →</a></div>
+    </div>
+    {% endfor %}
+    {% if c.vocab %}
+    <strong style="display:block;margin:18px 0 8px">词汇与表达</strong>
+    <table>
+      <tr><th>原表达</th><th>建议</th><th>说明</th></tr>
+      {% for v in c.vocab %}
+      <tr><td style="color:#d97b7b">{{ v.original }}</td><td style="color:var(--green-d)">{{ v.suggestion }}</td><td style="color:var(--sub)">{{ v.note }}</td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
   </div>
 
   <!-- 点击标注后显示的详情 + 追问 -->
@@ -77,29 +109,6 @@
       </div>
       <div id="qlist" style="margin-top:10px"></div>
     </div>
-  </div>
-</div>
-
-<!-- ═══ 逐句卡片 ═══ -->
-<div id="tab-sent" style="display:none">
-  <div class="card">
-    <p style="color:var(--sub);font-size:14px;margin-bottom:12px">{{ c.summary }}</p>
-    {% for s in c.sentences %}
-    <div class="sentence {{ s.type }}">
-      <div class="orig"><span class="tag {{ s.type }}">{{ {'error':'错误','optimize':'可优化','complex_kept':'复杂句·已保留','good':'写得好'}[s.type] }}</span>{{ s.original }}</div>
-      {% if s.type != 'good' %}<div class="revised">{{ s.revised }}</div>{% endif %}
-      <div class="note">{{ s.note }}</div>
-    </div>
-    {% endfor %}
-    {% if c.vocab %}
-    <strong style="display:block;margin:16px 0 8px">词汇与表达</strong>
-    <table>
-      <tr><th>原表达</th><th>建议</th><th>说明</th></tr>
-      {% for v in c.vocab %}
-      <tr><td style="color:#d97b7b">{{ v.original }}</td><td style="color:var(--green-d)">{{ v.suggestion }}</td><td style="color:var(--sub)">{{ v.note }}</td></tr>
-      {% endfor %}
-    </table>
-    {% endif %}
   </div>
 </div>
 
@@ -146,11 +155,28 @@
 
 <style>
 .essay-body{font-size:17px;line-height:2.3;color:var(--ink)}
+/* ── 逐句批改卡片：原文(红) → 修改(绿) + 讲解列表 ── */
+.fix-card{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;background:#fff}
+.fix-no{font-size:13px;color:var(--sub);margin-bottom:8px}
+.fix-label{font-size:12px;color:var(--sub);margin:6px 0 3px}
+.fix-box{padding:10px 14px;border-radius:8px;font-size:16px;line-height:2.05}
+.fix-box.orig{background:#fdecec}
+.fix-box.orig.good-only{background:#f4faf7}
+.fix-box.revised{background:#e9f7ef}
+.hl-del{background:#e05252;color:#fff;border-radius:4px;padding:0 4px;cursor:pointer}
+.hl-ins{background:#2e9e5b;color:#fff;border-radius:4px;padding:0 4px;cursor:pointer;font-weight:600}
+.hl-opt-old{background:none;color:#b07a1f;border-bottom:2px dotted #e9b970;cursor:pointer}
+.hl-opt{background:#e9a23b;color:#fff;border-radius:4px;padding:0 4px;cursor:pointer;font-weight:600}
+.fix-notes{margin:10px 0 0;padding-left:20px;font-size:13.5px;color:var(--ink);line-height:1.9}
+.fix-notes li{margin-bottom:2px}
+.fix-ask{margin-top:8px;font-size:12.5px}
+.fix-ask a{color:var(--green-d);text-decoration:none}
+.fix-ask a:hover{text-decoration:underline}
+/* ── 行内混排（书架/预览用） ── */
 .mk{cursor:pointer;border-radius:3px;transition:.15s}
 .mk.plain{border-bottom:1px dotted var(--sub)}
 .mk.plain:hover{background:var(--green-bg)}
 .mk:hover{filter:brightness(.94)}
-/* 删除线：只在线条上标红，不加内边距/背景块，避免把一个词拆成两截 */
 .mk.del{color:#c96a6a;text-decoration:line-through;
         text-decoration-color:#d98a8a;text-decoration-thickness:2px}
 .mk.ins{font-weight:600;padding:0}
@@ -159,9 +185,9 @@
 .mk.ins.complex_kept{color:#2f7fae;background:linear-gradient(transparent 62%, #ddedf8 62%)}
 .lg{margin-right:14px;display:inline-flex;align-items:center;gap:5px}
 .dot{width:12px;height:12px;border-radius:3px;display:inline-block}
-.dot.del{background:#fbeeec;border-top:2px solid #c96a6a}
-.dot.ins-error{background:#e9f6ef;border-bottom:2px solid #7fc8a9}
-.dot.ins-optimize{background:#fdf6e4;border-bottom:2px solid #e9b970}
+.dot.del{background:#e05252}
+.dot.ins-error{background:#2e9e5b}
+.dot.ins-optimize{background:#e9a23b}
 .dt-tag{font-size:11px;color:#fff;border-radius:8px;padding:2px 9px}
 </style>
 
@@ -174,7 +200,7 @@ var cur = -1;
 function showTab(id, btn){
   document.querySelectorAll('.tabs button').forEach(function(b){b.classList.remove('active');});
   btn.classList.add('active');
-  ['full','sent','cur','adv','wished'].forEach(function(t){
+  ['full','cur','adv','wished'].forEach(function(t){
     document.getElementById('tab-'+t).style.display = t===id ? '' : 'none';
   });
 }
