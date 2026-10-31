@@ -33,7 +33,7 @@ def log(*args):
             pass
 
 
-VERSION = "3.10"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.11"   # 页脚显示，用于确认正在运行的是新版本
 
 
 def pick_port(default=5000, span=20):
@@ -649,6 +649,62 @@ def _split_units(note):
             yield chunk
 
 
+def _trim_note(note, eng, zh=""):
+    """只保留与这个词条相关的那一小句，不要整段讲解。
+
+    用户反馈：一个词条下面挂着「I'm working for… 表示…。It was ten PM…
+    come back home 中的 home…」= 三个句子的讲解全糊在一起。
+    这里按句切开，挑出「含该短语」或「含该中文释义」的那一句；
+    挑不到就退化成这个词条自己的释义，宁可短也不要糊。
+    """
+    note = as_text(note).strip()
+    eng = as_text(eng).strip()
+    zh = as_text(zh).strip()
+    if not note:
+        return ""
+    units = [u.strip(" ，,、") for u in re.split(r"[。！!？?\n]+", note) if u.strip(" ，,、")]
+    if len(units) <= 1:
+        return units[0][:150] if units else ""
+
+    eng_low = eng.lower()
+    # 该短语的核心词（"come back home" → come/back/home），至少命中一个词根
+    eng_words = [w for w in re.findall(r"[A-Za-z']+", eng_low) if len(w) > 2]
+
+    best, best_score = "", 0
+    for u in units:
+        ul = u.lower()
+        score = 0
+        if eng_low and eng_low in ul:
+            score = 100
+        elif eng_words and all(_lemma(w) in {_lemma(x) for x in re.findall(r"[A-Za-z']+", ul)}
+                               for w in eng_words):
+            score = 80
+        elif eng_words and any(_lemma(w) in {_lemma(x) for x in re.findall(r"[A-Za-z']+", ul)}
+                               for w in eng_words):
+            score = 40
+        if zh and zh[:6] and zh[:6] in u:
+            score += 30
+        if score > best_score:
+            best, best_score = u, score
+    if best_score >= 40:
+        return best[:150]
+    # 没有明显相关句 → 只留第一句里不含其他英文短语的部分，避免串台
+    return units[0][:150] if len(units[0]) <= 60 else ""
+
+
+def _best_unit(note, eng):
+    """从整段讲解里挑出讲这个词条的那一句（没有就返回整段，供内部逻辑用）。"""
+    units = [u.strip() for u in re.split(r"[。！!？?\n]+", as_text(note)) if u.strip()]
+    if not units:
+        return ""
+    eng_low = as_text(eng).strip().lower()
+    if eng_low:
+        for u in units:
+            if eng_low in u.lower():
+                return u
+    return units[0]
+
+
 def extract_phrases_from_notes(c, where=""):
     """从逐句讲解里挖出短语 / 句型 / 单词。
 
@@ -702,9 +758,11 @@ def extract_phrases_from_notes(c, where=""):
         seen.add(key)
         if kind == "word" and not (zh or "").strip():
             zh = "单词（不是短语）"
+        # 讲解只留与这个词条相关的那一句，不搬整段（用户反馈：糊成一坨）
+        note_one = _trim_note(note, raw, zh)
         found.append({"original": raw[:120],
                       "suggestion": (zh or "").strip()[:140] or "（见讲解）",
-                      "note": (note or "").strip()[:280],
+                      "note": note_one[:200],
                       "where": where, "kind": kind,
                       "contrast": "", "same_as": ""})
         return len(found) - 1
@@ -715,6 +773,8 @@ def extract_phrases_from_notes(c, where=""):
         note = as_text(sn.get("note"))
         if not note:
             continue
+        # 这条 note 属于哪句原文：讲解里提到别的句子时，不要挂到本句的词条下
+        _own_orig = as_text(sn.get("original")) or as_text(sn.get("revised"))
 
         # ── ① 整段扫"对比型"句子（含 ；），必须在拆分前做
         for raw in re.split(r"[。！!？?\n]+", note):
@@ -1314,19 +1374,22 @@ def _tidy_drop_tail_repeat(s):
     return s
 
 
-def tidy_sentence(s):
+def tidy_sentence(s, diff_mode=False):
     """清理被弄脏的句子文本。
 
     从 ChatGPT 复制时常见的两种脏数据：
       1. 中文全角标点混进英文句子：`long，it` / `yesterday。`
-      2. 删除线被拍平：`bad company。The company.` / `long，it long.` /
-         `workworking` / `didn t`
-    这里只做「保守且确定」的清理：宁可留一点脏，也绝不把正常句子改坏。
+      2. 删除线被拍平：`bad company。The company.` / `workworking` / `didn t`
+
+    diff_mode=True 时**不做**句末重复剪除：`The meeting was very long, it long.`
+    里的 `, it long` 是学生真写的字，批改时应当标红显示「删掉」，
+    而不是悄悄消失在清洗里（用户反馈：这样看起来像没批注）。
     """
     s = _tidy_norm(s)
     s = _tidy_fixed(_tidy_dedupe_word, s)
     s = _tidy_fixed(_tidy_dedupe_exact, s)
-    s = _tidy_fixed(_tidy_drop_tail_repeat, s)
+    if not diff_mode:
+        s = _tidy_fixed(_tidy_drop_tail_repeat, s)
     s = re.sub(r"\s{2,}", " ", s)
     s = re.sub(r"\s+([,.;:!?])", r"\1", s)
     return s.strip(" ,;:")
@@ -1363,7 +1426,7 @@ def inline_diff_words(original, revised):
     词内部的 同/删/增 一律紧贴。这样在页面上读起来就是
     "改掉的那个字母被划掉、新字母紧跟在后面"，其余正文原样。
     """
-    o, r = tidy_sentence(original), tidy_sentence(revised)
+    o, r = tidy_sentence(original, diff_mode=True), tidy_sentence(revised, diff_mode=True)
     ow, rw = _words(o), _words(r)
     sm = difflib.SequenceMatcher(None, ow, rw, autojunk=False)
 
@@ -1444,10 +1507,36 @@ def _render_views(segs, typ, i):
 
     原文视图：same + del（被改错/删掉的字母标红）；
     修改视图：same + ins（改对/新加的字母标绿）。
-    optimize（可优化）原词不标红，新词标橙——「原句没错，这样更好」。
+
+    特例：如果 diff 里根本没有 ins（只是删掉了多余的字，如
+    `write a something content every` → `write something every`），
+    修改视图会一个绿标都没有，看起来像「没批注」。这时把「被删处
+    改写后的结果」整体标绿——即修改视图里紧邻删除位置的那个词。
     """
     def esc(t):
         return html_mod.escape(t)
+
+    # 找删除位置之后、修改视图里「真正的替换结果」
+    # 例：`I'm tired` 被删、后面是 ` and I was tired` → 该标 `I was tired`
+    affected = []
+    plain = [(k, t) for k, t in segs if t.strip()]
+    for n, (k, _t) in enumerate(plain):
+        if k != "del":
+            continue
+        # 跳过紧邻的空白 same，收集下一段连续 same 的词
+        buf = []
+        for m in range(n + 1, len(plain)):
+            k2, t2 = plain[m]
+            if k2 == "del":
+                break
+            if k2 == "same":
+                buf.append(t2.strip(" ,.;"))
+                if t2.rstrip().endswith("."):
+                    break
+        tail = " ".join(x for x in buf if x).strip()
+        if tail and len(tail.split()) <= 5:
+            affected.append(tail)
+    affected = [a for a in affected if a]
 
     def wrap(kind, txt, view):
         cls = None
@@ -1467,12 +1556,27 @@ def _render_views(segs, typ, i):
 
     orig_html = "".join(wrap(k, t, "orig") for k, t in segs if t)
     rev_html = "".join(wrap(k, t, "rev") for k, t in segs if t)
-    # 空白规范化（span 移除后可能留双空格）
-    orig_html = re.sub(r"[ \t]{2,}", " ",
-                       re.sub(r"</span> <span[^>]*>", " ", orig_html)).strip()
-    rev_html = re.sub(r"[ \t]{2,}", " ",
-                      re.sub(r"</span> <span[^>]*>", " ", rev_html)).strip()
-    return orig_html, rev_html
+
+    # 修改视图里一个绿标都没有 → 把「删除位置之后最近的完整词」补标绿
+    if "hl-ins" not in rev_html and "hl-opt" not in rev_html and affected:
+        for w in sorted(affected, key=len, reverse=True):
+            if not w:
+                continue
+            cls = "hl-ins" if typ == "error" else "hl-opt"
+            pat = r"(?<![A-Za-z])(" + re.escape(w) + r")(?![A-Za-z])"
+            new = re.sub(pat, f'<span class="{cls}" onclick="showDetail({i})">\\1</span>',
+                         rev_html, count=1)
+            if new != rev_html:
+                rev_html = new
+                break
+
+    # 空白规范化（span 移除后可能留双空格 / 缺空格）
+    def tidy(s):
+        # span 紧邻处的空格：只在「整词边界」补，字母级删改（li|v|fe）不能加空格
+        s = re.sub(r"</span> <span[^>]*>", " ", s)
+        s = re.sub(r"[ \t]{2,}", " ", s)
+        return s.strip()
+    return tidy(orig_html), tidy(rev_html)
 
 
 def _note_bullets(note):
