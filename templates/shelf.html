@@ -45,8 +45,10 @@
       <div class="mode-full" id="m-full-{{ b.id }}" style="display:none">
         {% if b.perfect %}
         <p style="font-size:13px;color:var(--sub);margin:0 0 10px">
-          ✨ 修改后的完美文章。<b style="color:#2e9e5b">绿色</b>的地方是本次修改的内容，点击可到详情页看这句的讲解。</p>
+          ✨ 修改后的完美文章。<b style="color:#e05252">红色</b>的地方是本次修改的内容，点击直接跳到这句的讲解。</p>
         <div class="book-text an essay-flow"><p>{{ b.perfect|safe }}</p></div>
+        <div class="sh-detail" id="det-{{ b.id }}" style="display:none"></div>
+        <script type="application/json" id="cards-{{ b.id }}">{{ b.cards|tojson }}</script>
         {% elif b.cards %}
           {% for s in b.cards %}
           <div class="fix-card">
@@ -132,9 +134,9 @@
 .hl-ins.tight{padding:0;border-radius:2px}
 .hl-opt.tight{padding:0;border-radius:2px}
 .hl-del{background:#e05252;color:#fff;border-radius:4px;padding:0 4px}
-.hl-ins{background:#2e9e5b;color:#fff;border-radius:4px;padding:0 4px;font-weight:600}
+.hl-ins{background:#e05252;color:#fff;border-radius:4px;padding:0 4px;font-weight:600}
 .hl-opt-old{background:none;color:#b07a1f;border-bottom:2px dotted #e9b970}
-.hl-opt{background:#e9a23b;color:#fff;border-radius:4px;padding:0 4px;font-weight:600}
+.hl-opt{background:#e0762f;color:#fff;border-radius:4px;padding:0 4px;font-weight:600}
 .fix-notes{margin:10px 0 0;padding-left:20px;font-size:13.5px;color:var(--ink);line-height:1.9}
 .fix-notes li{margin-bottom:2px}
 .fix-ask{margin-top:8px;font-size:12.5px}
@@ -153,6 +155,12 @@
 .empty-tip{color:var(--sub);font-size:14px;line-height:1.9}
 .book-text.an{font-size:16px;line-height:2.2}
 .book-text.an .mk{cursor:default}
+
+.dbox{padding:10px 14px;border-radius:8px;font-size:15.5px;line-height:2;margin:2px 0}
+.dbox.orig{background:#fdecec}
+.dbox.rev{background:#fff5f2}
+.dbox.good{background:#f4faf7}
+.sh-detail{margin-top:14px;border:1px solid var(--line);border-left:4px solid #e05252;border-radius:10px;padding:14px 16px;background:#fff}
 </style>
 
 <script>
@@ -190,14 +198,46 @@ function showMode(id, mode, btn){
   wrap.querySelectorAll('.sw').forEach(function(b){ b.classList.remove('on'); });
   if (btn) btn.classList.add('on');
 }
-// 完美文章里点绿色标注 → 跳到详情页对应位置看讲解
-function goEssay(id){ location.href = '/essay/' + id; }
-document.querySelectorAll('.mode-full .hl-ins,.mode-full .hl-del,.mode-full .hl-opt').forEach(function(el){
-  el.style.cursor = 'pointer';
-  el.addEventListener('click', function(){
-    var page = el.closest('.reader-page');
-    if (page && page.id) location.href = '/essay/' + page.id.replace('reader-','');
-  });
+// 完美文章里点红色标注 → 就地展开这句的详情（不跳页、不跳两次）
+function shShowDetail(bookId, idx){
+  var box = document.getElementById('det-' + bookId);
+  var raw = document.getElementById('cards-' + bookId);
+  if (!box || !raw) return;
+  var cards = [];
+  try { cards = JSON.parse(raw.textContent) || []; } catch(e) { return; }
+  var s = cards[idx];
+  if (!s) return;
+  var TY = {error:'语法错误', optimize:'可以更地道', complex_kept:'复杂句 · 已保留', good:'写得好'};
+  var CL = {error:'err', optimize:'opt', complex_kept:'mint', good:'score'};
+  var h = '<div style="display:flex;justify-content:space-between;align-items:center">'
+        + '<span class="dt-tag badge ' + (CL[s.type]||'err') + '">' + (TY[s.type]||'') + '</span>'
+        + '<a href="javascript:void(0)" onclick="document.getElementById(\'det-'+bookId+'\').style.display=\'none\'"'
+        + ' style="font-size:12px;color:#9aa;text-decoration:none">收起 ✕</a></div>';
+  if (s.type === 'good'){
+    h += '<p style="margin:10px 0 4px"><b>原句：</b></p><div class="dbox good">' + s.orig_html + '</div>';
+  } else {
+    h += '<p style="margin:10px 0 4px"><b>原句：</b><span style="font-size:12px;color:#9aa">（红色 = 改掉的地方）</span></p>'
+       + '<div class="dbox orig">' + s.orig_html + '</div>'
+       + '<p style="margin:10px 0 4px"><b>改为：</b><span style="font-size:12px;color:#9aa">（红色 = 新的写法）</span></p>'
+       + '<div class="dbox rev">' + s.rev_html + '</div>';
+  }
+  if (s.bullets && s.bullets.length){
+    h += '<ul class="fix-notes">' + s.bullets.map(function(b){return '<li>'+b+'</li>';}).join('') + '</ul>';
+  }
+  h += '<div class="fix-ask"><a href="/essay/' + bookId + '">去详情页追问这句 →</a></div>';
+  box.innerHTML = h;
+  box.style.display = '';
+  box.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+document.addEventListener('click', function(ev){
+  var el = ev.target.closest && ev.target.closest('.mode-full .hl-ins,.mode-full .hl-del,.mode-full .hl-opt');
+  if (!el) return;
+  var page = el.closest('.reader-page');
+  if (!page) return;
+  var m = /^reader-(\d+)$/.exec(page.id);
+  if (!m) return;
+  var idx = el.getAttribute('data-i');
+  if (idx !== null) shShowDetail(m[1], parseInt(idx, 10));
 });
 </script>
 {% endblock %}

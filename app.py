@@ -33,7 +33,7 @@ def log(*args):
             pass
 
 
-VERSION = "3.13"   # 页脚显示，用于确认正在运行的是新版本
+VERSION = "3.14"   # 页脚显示，用于确认正在运行的是新版本
 
 
 def pick_port(default=5000, span=20):
@@ -287,11 +287,23 @@ CORRECT_PROMPT = """你是一位专业耐心的英语写作老师。学生正在
 
 REVIEW_PROMPT = """你是一位英语写作教练。学生把一批作文的批改结果交给你，请写一份回顾报告：指出这些作文里**细小的进步和变化**（哪怕很微小，比如某个语法错误不再出现、开始使用从句、连接词变丰富了），也指出反复出现的顽固错误和下一步最值得练的 1-3 个点。语气鼓励但具体，用中文。
 
+我会额外给你一份**程序统计好的客观数据**（stats），请基于它回答四个进步问题，不要自己编数字：
+- 正确句子占比有没有提高？（看 stats.correct_ratio_trend）
+- 已经纠正的错误有没有再次出现？（看 stats.regressed_errors）
+- 以前不会使用的句型，现在能否独立正确使用？（看 stats.patterns_new_ok）
+- 同样的表达任务，是不是写得更准确了？（看 stats.error_rate_per_100_trend）
+
 只输出 JSON：
 {
  "progress": ["进步点1（引用具体例子）", "..."],
  "recurring": ["顽固错误1（出现次数/例子）", "..."],
  "next_steps": ["下一步建议1", "..."],
+ "answers": {
+   "correct_ratio": "正确句子占比的变化，引用具体百分比和篇目",
+   "regressed": "哪些已纠正的错误又出现了，没有就明说",
+   "patterns": "哪些句型从不会到能独立正确使用，没有就明说",
+   "accuracy": "每百词错误率是否下降，引用具体数字"
+ },
  "comment": "总体寄语"
 }
 """
@@ -1087,9 +1099,13 @@ def shelf():
         c = safe_correction(e["correction"])
         adv = as_text(c.get("version_advanced")).strip()
         annotated, _, clean_orig, cards = build_annotated(c, {}) if c else ("", [], "", [])
-        # 完美文章：修改后的整篇，改动处标绿（与详情页同一套数据/格式）
-        perfect_html = " ".join((x.get("rev_html") or x.get("orig_html") or "").strip()
-                                for x in (cards or [])).strip()
+        # 完美文章：修改后的整篇，改动处标红（与详情页同一套数据/格式）
+        # 给每个高亮标上 data-i，书架里点它才能就地弹出对应句子
+        perfect_html = " ".join(
+            re.sub(r'<span class="(hl-[a-z-]+)',
+                   lambda m: f'<span data-i="{x.get("i")}" class="{m.group(1)}',
+                   (x.get("rev_html") or x.get("orig_html") or "").strip())
+            for x in (cards or [])).strip()
         perfect_html = re.sub(r"[ \t]{2,}", " ", perfect_html)
         # 逐句卡片：与「我的文章」详情页同一套渲染（用户要求两处格式一致）
         cards = cards or []
@@ -1670,6 +1686,8 @@ def build_annotated(c, qa_map):
             clean_orig.append(cl)
         meta.append({"i": i, "type": typ, "note": as_text(sn.get("note")),
                      "original": tidy_sentence(orig), "revised": tidy_sentence(rev),
+                     # 带高亮的版本：详情弹窗里也要看得出「哪儿改了」
+                     "origHtml": orig_html, "revHtml": rev_html,
                      "skey": skey, "qa": qa_map.get(skey, [])})
 
     # 句间自动补空格：span 之间没了空格，页面上 "company。The" 会粘在一起
@@ -1840,12 +1858,16 @@ def parse_import(essay_id):
 def review():
     interval = int(request.form.get("interval") or get_setting("review_interval", "10"))
     set_setting("review_interval", interval)
+    # 按时间正序取（趋势要看先后），再倒序展示
     essays = db().execute(
-        "SELECT id, title, content, correction FROM essays WHERE corrected=1 "
-        "ORDER BY id LIMIT ?", (interval,),
+        "SELECT id, title, content, correction, created_at FROM essays WHERE corrected=1 "
+        "ORDER BY id ASC LIMIT ?", (interval,),
     ).fetchall()
     if len(essays) < 2:
         return jsonify({"error": f"已批改作文不足 2 篇，还无法回顾（当前 {len(essays)} 篇）"}), 400
+
+    # 客观统计（本地算，不靠 AI）
+    stats = build_review_stats(list(essays))
 
     brief = []
     for e in essays:
@@ -1858,13 +1880,15 @@ def review():
                       "vocab": c.get("vocab", [])})
     messages = [
         {"role": "system", "content": REVIEW_PROMPT},
-        {"role": "user", "content": json.dumps(brief, ensure_ascii=False)},
+        {"role": "user", "content": json.dumps(
+            {"essays": brief, "stats": stats}, ensure_ascii=False)},
     ]
     result = call_ai(messages)
     data = extract_json(result) if result else None
     if not data:
         data = dict(DEMO_REVIEW)
         data["demo"] = True
+    data["stats"] = stats      # 数字永远以本地统计为准，AI 只负责解读
     db().execute(
         "INSERT INTO reviews(essay_ids, report, created_at) VALUES(?,?,?)",
         (json.dumps([e["id"] for e in essays]), json.dumps(data, ensure_ascii=False), time.time()),
@@ -1881,6 +1905,136 @@ def reviews():
              for r in rows]
     return render_template("reviews.html", reviews=items,
                            interval=get_setting("review_interval", "10"))
+
+
+COMPLEX_MARKERS = re.compile(
+    r"\b(although|though|even though|whereas|while|unless|as long as|in case|"
+    r"which|who|whom|whose|that|where|when|if|because|since|so that|"
+    r"not only|rather than|instead of|despite|in spite of|however|therefore|"
+    r"moreover|furthermore|nevertheless|consequently)\b", re.I)
+
+# 错误归类：把「这一处改动」映射成一个可统计的类别，用于跨篇重复统计
+ERROR_KINDS = [
+    ("时态",          r"\b(was|were|went|came|did|had|saw|took|made|got)\b|过去|时态|tense|didn't|did not"),
+    ("主谓一致",      r"复数|单数|were|was|agree|一致|clothes"),
+    ("冠词",          r"\ba\b|\ban\b|\bthe\b|冠词|article"),
+    ("介词/搭配",     r"\bto\b|\bfor\b|\binto\b|\bon\b|\bin\b|介词|搭配|preposition|collocation"),
+    ("拼写",          r"拼写|spell|typo|大小写|capital"),
+    ("词形/时态变形", r"ing\b|过去式|-ed\b|原形|词形|form"),
+    ("用词/表达",     r"用词|表达|更自然|更地道|word choice|natural"),
+    ("句式结构",      r"从句|结构|句子不完整|fragment|run-on|逗号粘连|comma splice"),
+]
+
+
+def _err_kind(note, orig, rev):
+    """给一处修改打上错误类别标签（可多个），用于跨篇统计。"""
+    blob = f"{note or ''} {orig or ''} {rev or ''}"
+    hits = []
+    for name, pat in ERROR_KINDS:
+        if re.search(pat, blob, re.I):
+            hits.append(name)
+    return hits or ["其他"]
+
+
+def essay_stats(c):
+    """单篇作文的客观指标（全部可算，不靠 AI 猜）。"""
+    c = c if isinstance(c, dict) else {}
+    sents = [s for s in as_list(c.get("sentences")) if isinstance(s, dict)]
+    total_words, err_words = 0, 0
+    correct = err_n = opt_n = complex_ok = 0
+    kinds = {}
+    for s in sents:
+        typ = as_text(s.get("type")) or "error"
+        orig = as_text(s.get("original"))
+        rev = as_text(s.get("revised"))
+        text = rev or orig
+        wc = len(re.findall(r"[A-Za-z']+", text))
+        total_words += wc
+        if typ == "error":
+            err_n += 1
+            # 错误涉及的词数 ≈ 原句与改句的差异词数（至少按 1 计）
+            d = sum(len(t.split()) for k, t in inline_diff_words(orig, rev) if k != "same")
+            err_words += max(1, d)
+            for k in _err_kind(as_text(s.get("note")), orig, rev):
+                kinds[k] = kinds.get(k, 0) + 1
+        elif typ == "optimize":
+            opt_n += 1
+        elif typ == "complex_kept":
+            complex_ok += 1
+        elif typ == "good":
+            correct += 1
+        # 复杂句：改后句里含从句/连接词标记，且没被判错 → 计入「正确使用的复杂句」
+        if typ in ("good", "complex_kept") and COMPLEX_MARKERS.search(text or ""):
+            complex_ok += 1
+    sent_n = len(sents)
+    return {
+        "sentences": sent_n,
+        "words": total_words,
+        "error_count": err_n,
+        "opt_count": opt_n,
+        "correct_sentences": correct,
+        "correct_ratio": round(correct * 100.0 / sent_n, 1) if sent_n else 0.0,
+        "errors_per_100": round(err_n * 100.0 / total_words, 2) if total_words else 0.0,
+        "err_words_per_100": round(err_words * 100.0 / total_words, 2) if total_words else 0.0,
+        "complex_ok": complex_ok,
+        "kinds": kinds,
+        "kind_list": sorted(kinds.items(), key=lambda kv: -kv[1]),
+    }
+
+
+def build_review_stats(essays):
+    """跨篇统计：给进步回顾用的客观数据。
+
+    essays 按时间正序传入。产出：
+      · 当前各项指标与趋势（正确句占比、每百词错误数）
+      · 重复出现的错误类型（跨篇累计）
+      · 已纠正又复发的错误（同一错误类别在前篇已消失、后篇又出现）
+      · 新掌握并能正确使用的句型（后篇出现、前篇没有的复杂连接词）
+    """
+    rows, all_kinds, seen_markers = [], {}, set()
+    new_patterns = []
+    prev_kinds = {}
+    seen_pat = set()          # 之前篇目里出现过的复杂连接词
+    for e in essays:
+        c = safe_correction(e["correction"]) or {}
+        st = essay_stats(c)
+        rows.append({"id": e["id"], "title": e["title"] or "",
+                     "date": time.strftime("%m-%d", time.localtime(e["created_at"])),
+                     **st})
+        for k, v in st["kinds"].items():
+            all_kinds[k] = all_kinds.get(k, 0) + v
+        # 复发检测：上一本篇里没有、但更早的篇里出现过 → 复发
+        regressed = [k for k in st["kinds"] if k in seen_markers and k not in (prev_kinds or {})]
+        st["regressed"] = regressed
+        prev_kinds = st["kinds"]
+        seen_markers |= set(st["kinds"])
+        # 新句型：本篇里正确使用的复杂连接词，之前没出现过
+        cur = set(m.group(0).lower() for m in COMPLEX_MARKERS.finditer(
+            " ".join(as_text(s.get("revised") or s.get("original"))
+                     for s in as_list(c.get("sentences")) if isinstance(s, dict))))
+        fresh = sorted(x for x in (cur - seen_pat) if x not in ("that", "when", "if", "who"))
+        if fresh:
+            new_patterns.append({"title": e["title"] or "", "patterns": fresh[:5]})
+        seen_pat |= cur
+
+    trend = []
+    if len(rows) >= 2:
+        a, b = rows[0], rows[-1]
+        trend = [
+            {"name": "正确句子占比", "before": a["correct_ratio"], "after": b["correct_ratio"],
+             "unit": "%", "better": b["correct_ratio"] >= a["correct_ratio"]},
+            {"name": "每 100 词错误数", "before": a["errors_per_100"], "after": b["errors_per_100"],
+             "unit": "", "better": b["errors_per_100"] <= a["errors_per_100"]},
+            {"name": "正确使用的复杂句", "before": a["complex_ok"], "after": b["complex_ok"],
+             "unit": " 句", "better": b["complex_ok"] >= a["complex_ok"]},
+        ]
+    regressed_all = sorted({k for r in rows for k in r.get("regressed", [])})
+    return {"rows": rows, "kinds": sorted(all_kinds.items(), key=lambda kv: -kv[1]),
+            "trend": trend, "regressed": regressed_all,
+            "new_patterns": new_patterns, "n": len(rows)}
+
+
+seen_markers_patterns = set()
 
 
 SAY_PROMPT = """你是一位地道英语表达教练。学生用中文说出他想表达的意思，你给他地道的英文说法。

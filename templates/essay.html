@@ -51,7 +51,7 @@
   <div class="card">
     <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
       <div style="font-size:13px;color:var(--sub)">
-        <span class="lg"><i class="dot ins-error"></i>绿色 = 本次修改的地方，点击查看这句的讲解</span>
+        <span class="lg"><i class="dot ins-error"></i>红色 = 本次修改的地方，点击直接展开这句的讲解</span>
       </div>
       <div>
         <span class="badge score">{{ c.score }}/10</span>
@@ -172,9 +172,9 @@
 .hl-ins.tight{padding:0;border-radius:2px}
 .hl-opt.tight{padding:0;border-radius:2px}
 .hl-del{background:#e05252;color:#fff;border-radius:4px;padding:0 4px;cursor:pointer}
-.hl-ins{background:#2e9e5b;color:#fff;border-radius:4px;padding:0 4px;cursor:pointer;font-weight:600}
+.hl-ins{background:#e05252;color:#fff;border-radius:4px;padding:0 4px;cursor:pointer;font-weight:600}
 .hl-opt-old{background:none;color:#b07a1f;border-bottom:2px dotted #e9b970;cursor:pointer}
-.hl-opt{background:#e9a23b;color:#fff;border-radius:4px;padding:0 4px;cursor:pointer;font-weight:600}
+.hl-opt{background:#e0762f;color:#fff;border-radius:4px;padding:0 4px;cursor:pointer;font-weight:600}
 .fix-notes{margin:10px 0 0;padding-left:20px;font-size:13.5px;color:var(--ink);line-height:1.9}
 .fix-notes li{margin-bottom:2px}
 .fix-ask{margin-top:8px;font-size:12.5px}
@@ -194,9 +194,15 @@
 .lg{margin-right:14px;display:inline-flex;align-items:center;gap:5px}
 .dot{width:12px;height:12px;border-radius:3px;display:inline-block}
 .dot.del{background:#e05252}
-.dot.ins-error{background:#2e9e5b}
-.dot.ins-optimize{background:#e9a23b}
+.dot.ins-error{background:#e05252}
+.dot.ins-optimize{background:#e0762f}
 .dt-tag{font-size:11px;color:#fff;border-radius:8px;padding:2px 9px}
+
+.dbox{padding:10px 14px;border-radius:8px;font-size:15.5px;line-height:2;margin:2px 0}
+.dbox.orig{background:#fdecec}
+.dbox.rev{background:#fff5f2}
+.dbox.good{background:#f4faf7}
+.sh-detail{margin-top:14px;border:1px solid var(--line);border-left:4px solid #e05252;border-radius:10px;padding:14px 16px;background:#fff}
 </style>
 
 <script>
@@ -217,9 +223,17 @@ function showDetail(i){
   cur = i;
   var s = S[i];
   var h = '<div><span class="dt-tag badge '+TYPECLS[s.type]+'">'+TYPENAME[s.type]+'</span></div>';
-  h += '<p style="margin:10px 0 4px"><b>原句：</b>' + esc(s.original) + '</p>';
-  if (s.type !== 'good') h += '<p style="margin:4px 0"><b>改为：</b>' + esc(s.revised) + '</p>';
-  h += '<p style="color:var(--sub);font-size:14px;margin:8px 0 0">' + esc(s.note) + '</p>';
+  if (s.type === 'good'){
+    h += '<p style="margin:10px 0 4px"><b>原句：</b></p><div class="dbox good">'+(s.origHtml||esc(s.original))+'</div>';
+  } else {
+    h += '<p style="margin:10px 0 4px"><b>原句：</b>'
+       + '<span style="font-size:12px;color:var(--sub)">（红色 = 改掉的地方）</span></p>'
+       + '<div class="dbox orig">'+(s.origHtml||esc(s.original))+'</div>';
+    h += '<p style="margin:10px 0 4px"><b>改为：</b>'
+       + '<span style="font-size:12px;color:var(--sub)">（红色 = 新的写法）</span></p>'
+       + '<div class="dbox rev">'+(s.revHtml||esc(s.revised))+'</div>';
+  }
+  h += '<p style="color:var(--sub);font-size:14px;margin:10px 0 0">' + esc(s.note) + '</p>';
   document.getElementById('detail-body').innerHTML = h;
   var ql = document.getElementById('qlist');
   ql.innerHTML = '';
